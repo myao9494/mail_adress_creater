@@ -1,0 +1,91 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "https://excalidraw.com",
+  "elements": [
+    {
+      "id": "app",
+      "type": "rectangle",
+      "x": 200,
+      "y": 50,
+      "width": 400,
+      "height": 60,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "label": "App.tsx"
+    },
+    {
+      "id": "arrow1",
+      "type": "arrow",
+      "x": 300,
+      "y": 110,
+      "points": [[0, 0], [0, 40]],
+      "strokeColor": "#1e1e1e"
+    },
+    {
+      "id": "arrow2",
+      "type": "arrow",
+      "x": 500,
+      "y": 110,
+      "points": [[0, 0], [0, 40]],
+      "strokeColor": "#1e1e1e"
+    },
+    {
+      "id": "pane1",
+      "type": "rectangle",
+      "x": 100,
+      "y": 150,
+      "width": 200,
+      "height": 60,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "label": "RecipientPane (To)"
+    },
+    {
+      "id": "pane2",
+      "type": "rectangle",
+      "x": 500,
+      "y": 150,
+      "width": 200,
+      "height": 60,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "label": "RecipientPane (CC)"
+    },
+    {
+      "id": "hooks",
+      "type": "rectangle",
+      "x": 100,
+      "y": 280,
+      "width": 600,
+      "height": 80,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#ffec99",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "label": "Hooks: useRecipients, useSearch"
+    },
+    {
+      "id": "utils",
+      "type": "rectangle",
+      "x": 100,
+      "y": 400,
+      "width": 600,
+      "height": 80,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#ffc9c9",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "label": "Utils: csvParser, search, clipboard"
+    }
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff"
+  }
+}
