@@ -11,6 +11,7 @@ type UseSearchReturn = {
   results: CheckableRecipient[]
   unmatchedKeywords: string[]
   toggleCheck: (name: string) => void
+  uncheckItem: (name: string) => void
   getCheckedNames: () => string[]
   executeSearch: () => void
 }
@@ -47,7 +48,8 @@ export function useSearch(recipients: Recipient[]): UseSearchReturn {
     const trimmedQuery = searchedQuery.trim()
     if (!trimmedQuery) return []
 
-    const keywords = trimmedQuery.split(' ').filter(k => k.length > 0)
+    // 半角スペースと全角スペースの両方で区切る
+    const keywords = trimmedQuery.split(/[ 　]+/).filter(k => k.length > 0)
     return keywords.filter(keyword => {
       const keywordLower = keyword.toLowerCase()
       return !recipients.some(r => r.name.toLowerCase().includes(keywordLower))
@@ -67,6 +69,15 @@ export function useSearch(recipients: Recipient[]): UseSearchReturn {
     })
   }, [])
 
+  // チェックを外す（選択解除）
+  const uncheckItem = useCallback((name: string) => {
+    setCheckedNames(prev => {
+      const newSet = new Set(prev)
+      newSet.delete(name)
+      return newSet
+    })
+  }, [])
+
   // チェックされた名前を取得
   const getCheckedNames = useCallback(() => {
     return results.filter(r => r.checked).map(r => r.name)
@@ -78,6 +89,7 @@ export function useSearch(recipients: Recipient[]): UseSearchReturn {
     results,
     unmatchedKeywords,
     toggleCheck,
+    uncheckItem,
     getCheckedNames,
     executeSearch,
   }

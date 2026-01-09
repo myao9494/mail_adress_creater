@@ -14,6 +14,17 @@ const mockRecipients: Recipient[] = [
   { name: '鈴木 恒一', count: 150 },
 ]
 
+// デフォルトのプロパティ
+const defaultProps = {
+  title: '宛先（To）',
+  buttonLabel: '宛先作成',
+  recipients: mockRecipients,
+  onCopySuccess: () => {},
+  onNameCopy: () => {},
+  isFocused: false,
+  onFocus: () => {},
+}
+
 describe('RecipientPane', () => {
   beforeEach(() => {
     // クリップボードAPIをモック
@@ -25,43 +36,22 @@ describe('RecipientPane', () => {
   })
 
   it('初期状態で検索案内が表示される', () => {
-    render(
-      <RecipientPane
-        title="宛先（To）"
-        buttonLabel="宛先作成"
-        recipients={mockRecipients}
-        onCopySuccess={() => {}}
-      />
-    )
+    render(<RecipientPane {...defaultProps} />)
 
     expect(screen.getByText('検索キーワードを入力してEnter')).toBeInTheDocument()
   })
 
   it('タイトルとボタンラベルが表示される', () => {
-    render(
-      <RecipientPane
-        title="CC"
-        buttonLabel="CC作成"
-        recipients={mockRecipients}
-        onCopySuccess={() => {}}
-      />
-    )
+    render(<RecipientPane {...defaultProps} title="CC" buttonLabel="CC作成" />)
 
     expect(screen.getByText('CC')).toBeInTheDocument()
     expect(screen.getByText('CC作成')).toBeInTheDocument()
   })
 
   it('検索実行で結果が表示される', () => {
-    render(
-      <RecipientPane
-        title="宛先（To）"
-        buttonLabel="宛先作成"
-        recipients={mockRecipients}
-        onCopySuccess={() => {}}
-      />
-    )
+    render(<RecipientPane {...defaultProps} />)
 
-    const input = screen.getByPlaceholderText('検索（Enterで実行）')
+    const input = screen.getByPlaceholderText('検索キーワードを入力（Enterで実行）')
     fireEvent.change(input, { target: { value: '山田' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -71,16 +61,9 @@ describe('RecipientPane', () => {
   })
 
   it('検索結果のチェックボックスは初期状態で全てON', () => {
-    render(
-      <RecipientPane
-        title="宛先（To）"
-        buttonLabel="宛先作成"
-        recipients={mockRecipients}
-        onCopySuccess={() => {}}
-      />
-    )
+    render(<RecipientPane {...defaultProps} />)
 
-    const input = screen.getByPlaceholderText('検索（Enterで実行）')
+    const input = screen.getByPlaceholderText('検索キーワードを入力（Enterで実行）')
     fireEvent.change(input, { target: { value: '山田' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -90,25 +73,17 @@ describe('RecipientPane', () => {
     })
   })
 
-  it('行クリックでチェックOFF', () => {
-    render(
-      <RecipientPane
-        title="宛先（To）"
-        buttonLabel="宛先作成"
-        recipients={mockRecipients}
-        onCopySuccess={() => {}}
-      />
-    )
+  it('チェックボックスクリックでチェックOFF', () => {
+    render(<RecipientPane {...defaultProps} />)
 
-    const input = screen.getByPlaceholderText('検索（Enterで実行）')
+    const input = screen.getByPlaceholderText('検索キーワードを入力（Enterで実行）')
     fireEvent.change(input, { target: { value: '山田' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
-    // li要素をクリック
-    const row = screen.getByText('山田 太郎').closest('li')!
-    fireEvent.click(row)
-
+    // チェックボックスをクリック
     const checkboxes = screen.getAllByRole('checkbox')
+    fireEvent.click(checkboxes[0])
+
     expect(checkboxes[0]).not.toBeChecked()
     expect(checkboxes[1]).toBeChecked()
   })
@@ -116,16 +91,9 @@ describe('RecipientPane', () => {
   it('コピーボタンクリックでクリップボードにコピー', async () => {
     const onCopySuccess = vi.fn()
 
-    render(
-      <RecipientPane
-        title="宛先（To）"
-        buttonLabel="宛先作成"
-        recipients={mockRecipients}
-        onCopySuccess={onCopySuccess}
-      />
-    )
+    render(<RecipientPane {...defaultProps} onCopySuccess={onCopySuccess} />)
 
-    const input = screen.getByPlaceholderText('検索（Enterで実行）')
+    const input = screen.getByPlaceholderText('検索キーワードを入力（Enterで実行）')
     fireEvent.change(input, { target: { value: '山田' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -140,16 +108,9 @@ describe('RecipientPane', () => {
   })
 
   it('該当なしの場合はメッセージ表示', () => {
-    render(
-      <RecipientPane
-        title="宛先（To）"
-        buttonLabel="宛先作成"
-        recipients={mockRecipients}
-        onCopySuccess={() => {}}
-      />
-    )
+    render(<RecipientPane {...defaultProps} />)
 
-    const input = screen.getByPlaceholderText('検索（Enterで実行）')
+    const input = screen.getByPlaceholderText('検索キーワードを入力（Enterで実行）')
     fireEvent.change(input, { target: { value: '存在しない名前' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -157,16 +118,29 @@ describe('RecipientPane', () => {
   })
 
   it('初期状態ではボタンが無効', () => {
-    render(
-      <RecipientPane
-        title="宛先（To）"
-        buttonLabel="宛先作成"
-        recipients={mockRecipients}
-        onCopySuccess={() => {}}
-      />
-    )
+    render(<RecipientPane {...defaultProps} />)
 
     const button = screen.getByText('宛先作成')
     expect(button).toBeDisabled()
+  })
+
+  it('名前クリックでクリップボードにコピー', async () => {
+    const onNameCopy = vi.fn()
+
+    render(<RecipientPane {...defaultProps} onNameCopy={onNameCopy} />)
+
+    const input = screen.getByPlaceholderText('検索キーワードを入力（Enterで実行）')
+    fireEvent.change(input, { target: { value: '山田' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    // 名前をクリック
+    const nameSpan = screen.getByText('山田 太郎')
+    fireEvent.click(nameSpan)
+
+    // 非同期処理を待つ
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('山田 太郎')
+    expect(onNameCopy).toHaveBeenCalledWith('山田 太郎')
   })
 })

@@ -1,16 +1,23 @@
 /**
  * Outlook宛先作成アプリのメインコンポーネント
  * 2ペイン構成で宛先(To)とCCを独立して管理する
+ *
+ * キーボードナビゲーション:
+ * - 左右矢印: ペイン間の移動
+ * - 上下矢印: ペイン内のアイテム移動
  */
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useRecipients } from './hooks/useRecipients'
 import { RecipientPane } from './components/RecipientPane'
 import { Toast } from './components/Toast'
+
+type FocusedPane = 'left' | 'right'
 
 function App() {
   const { recipients, loading, error } = useRecipients()
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
+  const [focusedPane, setFocusedPane] = useState<FocusedPane>('left')
 
   const showToast = useCallback((message: string) => {
     setToastMessage(message)
@@ -19,6 +26,30 @@ function App() {
 
   const hideToast = useCallback(() => {
     setToastVisible(false)
+  }, [])
+
+  // グローバルキーボードイベント（左右矢印でペイン切替）
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // 入力フィールドにフォーカスがある場合は無視
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return
+      }
+
+      // 左矢印: 右ペイン → 左ペイン
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        setFocusedPane('left')
+      }
+      // 右矢印: 左ペイン → 右ペイン
+      else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        setFocusedPane('right')
+      }
+    }
+
+    window.addEventListener('keydown', handleGlobalKeyDown)
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown)
   }, [])
 
   if (loading) {
@@ -53,6 +84,9 @@ function App() {
             buttonLabel="宛先作成"
             recipients={recipients}
             onCopySuccess={() => showToast('宛先をコピーしました')}
+            onNameCopy={(name) => showToast(`${name} をコピーしました`)}
+            isFocused={focusedPane === 'left'}
+            onFocus={() => setFocusedPane('left')}
           />
         </div>
 
@@ -63,6 +97,9 @@ function App() {
             buttonLabel="CC作成"
             recipients={recipients}
             onCopySuccess={() => showToast('CCをコピーしました')}
+            onNameCopy={(name) => showToast(`${name} をコピーしました`)}
+            isFocused={focusedPane === 'right'}
+            onFocus={() => setFocusedPane('right')}
           />
         </div>
       </div>
