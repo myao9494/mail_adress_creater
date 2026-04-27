@@ -23,7 +23,7 @@ export function searchRecipients(recipients: Recipient[], query: string): Recipi
   }
 
   // 半角スペースと全角スペースの両方で区切ってキーワード配列を作成
-  const keywords = trimmedQuery.split(/[ 　]+/).filter(k => k.length > 0)
+  const keywords = trimmedQuery.split(/[\s\u3000]+/).filter(k => k.length > 0)
 
   // 各キーワードで部分一致（OR検索）
   return recipients.filter(recipient => {

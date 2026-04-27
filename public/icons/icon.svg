@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Outlook宛先作成">
+  <rect width="512" height="512" rx="96" fill="#111827"/>
+  <rect x="96" y="136" width="320" height="240" rx="32" fill="#2563eb"/>
+  <path d="M112 166l144 112 144-112" fill="none" stroke="#dbeafe" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="350" cy="334" r="74" fill="#10b981"/>
+  <path d="M316 334h68M350 300v68" fill="none" stroke="#ecfdf5" stroke-width="24" stroke-linecap="round"/>
+</svg>

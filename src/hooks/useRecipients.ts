@@ -9,6 +9,7 @@ type UseRecipientsReturn = {
   recipients: Recipient[]
   loading: boolean
   error: string | null
+  reload: () => Promise<void>
 }
 
 /**
@@ -20,8 +21,10 @@ export function useRecipients(): UseRecipientsReturn {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    loadRecipients()
+  const reload = async () => {
+    setLoading(true)
+    setError(null)
+    await loadRecipients()
       .then(data => {
         setRecipients(data)
         setLoading(false)
@@ -30,7 +33,11 @@ export function useRecipients(): UseRecipientsReturn {
         setError(err instanceof Error ? err.message : 'データの読み込みに失敗しました')
         setLoading(false)
       })
+  }
+
+  useEffect(() => {
+    reload()
   }, [])
 
-  return { recipients, loading, error }
+  return { recipients, loading, error, reload }
 }

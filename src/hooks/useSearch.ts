@@ -49,7 +49,7 @@ export function useSearch(recipients: Recipient[]): UseSearchReturn {
     if (!trimmedQuery) return []
 
     // 半角スペースと全角スペースの両方で区切る
-    const keywords = trimmedQuery.split(/[ 　]+/).filter(k => k.length > 0)
+    const keywords = trimmedQuery.split(/[\s\u3000]+/).filter(k => k.length > 0)
     return keywords.filter(keyword => {
       const keywordLower = keyword.toLowerCase()
       return !recipients.some(r => r.name.toLowerCase().includes(keywordLower))

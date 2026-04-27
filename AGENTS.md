@@ -1,4 +1,4 @@
-# CLAUDE.md - Outlook宛先作成アプリ
+# AGENTS.md - Outlook宛先作成アプリ
 
 ## プロジェクト概要
 

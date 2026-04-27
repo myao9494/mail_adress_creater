@@ -1,0 +1,19 @@
+{
+  "name": "Outlook宛先作成",
+  "short_name": "宛先作成",
+  "description": "Outlookの送信履歴から宛先とCCを作成するアプリ",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#111827",
+  "theme_color": "#111827",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
