@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
+import logging.handlers
 import os
 import sqlite3
 import sys
@@ -14,6 +16,7 @@ import threading
 import time
 import traceback
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -25,8 +28,10 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 PUBLIC_CSV_PATH = BASE_DIR / "public" / "send_mail-ranking_tabulator.csv"
 DIST_CSV_PATH = BASE_DIR / "dist" / "send_mail-ranking_tabulator.csv"
 DB_PATH = BASE_DIR / "backend" / "data" / "app.sqlite3"
+LOG_PATH = BASE_DIR / "backend" / "logs" / "app.log"
 JOB_LOCKS: dict[str, threading.Lock] = {}
 JOB_LOCKS_LOCK = threading.Lock()
+LOGGER = logging.getLogger("outlook_address_maker")
 
 DEFAULT_SETTINGS = {
     "keywords": ["棚卸", "棚おろし", "ユーザID"],
@@ -41,6 +46,30 @@ class KeywordMatch:
     line: str
     keyword: str
     is_new: bool
+
+
+def setup_logging() -> None:
+    if LOGGER.handlers:
+        return
+
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LOGGER.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s [%(threadName)s] %(message)s",
+        "%Y-%m-%d %H:%M:%S",
+    )
+    file_handler = logging.handlers.RotatingFileHandler(
+        LOG_PATH,
+        maxBytes=1_000_000,
+        backupCount=3,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
+    LOGGER.addHandler(file_handler)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    LOGGER.addHandler(console_handler)
 
 
 def utc_now() -> str:
@@ -168,24 +197,48 @@ def outlook_namespace() -> Any:
     try:
         import win32com.client  # type: ignore[import-not-found]
     except ImportError as exc:
+        LOGGER.exception("pywin32 import failed")
         raise RuntimeError("Outlook連携にはWindows環境とpywin32が必要です") from exc
-    return win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
+    try:
+        return win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
+    except Exception as exc:  # noqa: BLE001 - pywin32 raises platform-specific COM errors
+        LOGGER.exception("Failed to connect to Outlook COM namespace")
+        raise RuntimeError(
+            "OutlookのCOM連携を開始できません。"
+            "クラシック版Outlookがインストールされ、同じWindowsユーザーで起動できる状態か確認してください。"
+            "新しいOutlookのみの環境ではOutlook.Applicationが登録されないため、この機能は使えません。"
+        ) from exc
+
+
+@contextmanager
+def outlook_com_context() -> Any:
+    try:
+        import pythoncom  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise RuntimeError("Outlook連携にはWindows環境とpywin32が必要です") from exc
+
+    pythoncom.CoInitialize()
+    try:
+        yield
+    finally:
+        pythoncom.CoUninitialize()
 
 
 def get_sent_item_recipients(limit: int = 150) -> list[str]:
-    namespace = outlook_namespace()
-    sent_folder = namespace.GetDefaultFolder(5)
-    items = sent_folder.Items
-    items.Sort("[SentOn]", True)
-    recipients: list[str] = []
-    for index, item in enumerate(items, start=1):
-        if index > limit:
-            break
-        for recipient in item.Recipients:
-            name = str(getattr(recipient, "Name", "") or "").strip()
-            if name:
-                recipients.append(name)
-    return recipients
+    with outlook_com_context():
+        namespace = outlook_namespace()
+        sent_folder = namespace.GetDefaultFolder(5)
+        items = sent_folder.Items
+        items.Sort("[SentOn]", True)
+        recipients: list[str] = []
+        for index, item in enumerate(items, start=1):
+            if index > limit:
+                break
+            for recipient in item.Recipients:
+                name = str(getattr(recipient, "Name", "") or "").strip()
+                if name:
+                    recipients.append(name)
+        return recipients
 
 
 def count_and_sort_recipients(recipients: list[str]) -> list[tuple[str, int]]:
@@ -194,8 +247,10 @@ def count_and_sort_recipients(recipients: list[str]) -> list[tuple[str, int]]:
 
 def refresh_addresses(limit: int = 150) -> dict[str, Any]:
     ensure_db()
+    LOGGER.info("Refreshing addresses from sent items: limit=%s", limit)
     recipients = get_sent_item_recipients(limit)
     if not recipients:
+        LOGGER.warning("No sent item recipients were found")
         raise RuntimeError("送信済みアイテムフォルダにメールがありません")
 
     old_counts = read_recipients_csv(PUBLIC_CSV_PATH)
@@ -208,6 +263,12 @@ def refresh_addresses(limit: int = 150) -> dict[str, Any]:
     write_recipients_csv(merged_rows)
     save_recipients(merged_rows)
     record_job_run("refresh_addresses", "success", f"{len(merged_rows)}件を保存しました")
+    LOGGER.info(
+        "Refreshed addresses: saved_count=%s zero_count=%s csv_path=%s",
+        len(merged_rows),
+        sum(1 for _, count in merged_rows if count == 0),
+        PUBLIC_CSV_PATH,
+    )
     return {
         "saved_count": len(merged_rows),
         "zero_count": sum(1 for _, count in merged_rows if count == 0),
@@ -223,32 +284,33 @@ def message_received_time(message: Any) -> str:
 
 
 def find_keyword_matches(keywords: list[str], limit: int = 500) -> list[KeywordMatch]:
-    namespace = outlook_namespace()
-    inbox = namespace.GetDefaultFolder(6)
-    messages = inbox.Items
-    messages.Sort("[ReceivedTime]", True)
-    matches: list[KeywordMatch] = []
-    for index, message in enumerate(messages, start=1):
-        if index > limit:
-            break
-        subject = str(getattr(message, "Subject", "") or "")
-        if "職アドからのお知らせ" not in subject:
-            continue
-        body = str(getattr(message, "Body", "") or "")
-        received_time = message_received_time(message)
-        for line in body.splitlines():
-            matched_keyword = next((keyword for keyword in keywords if keyword in line), None)
-            if matched_keyword:
-                matches.append(
-                    KeywordMatch(
-                        received_time=received_time,
-                        subject=subject,
-                        line=line.strip(),
-                        keyword=matched_keyword,
-                        is_new=False,
+    with outlook_com_context():
+        namespace = outlook_namespace()
+        inbox = namespace.GetDefaultFolder(6)
+        messages = inbox.Items
+        messages.Sort("[ReceivedTime]", True)
+        matches: list[KeywordMatch] = []
+        for index, message in enumerate(messages, start=1):
+            if index > limit:
+                break
+            subject = str(getattr(message, "Subject", "") or "")
+            if "職アドからのお知らせ" not in subject:
+                continue
+            body = str(getattr(message, "Body", "") or "")
+            received_time = message_received_time(message)
+            for line in body.splitlines():
+                matched_keyword = next((keyword for keyword in keywords if keyword in line), None)
+                if matched_keyword:
+                    matches.append(
+                        KeywordMatch(
+                            received_time=received_time,
+                            subject=subject,
+                            line=line.strip(),
+                            keyword=matched_keyword,
+                            is_new=False,
+                        )
                     )
-                )
-    return matches
+        return matches
 
 
 def persist_keyword_matches(matches: list[KeywordMatch]) -> list[KeywordMatch]:
@@ -280,9 +342,11 @@ def persist_keyword_matches(matches: list[KeywordMatch]) -> list[KeywordMatch]:
 def check_keywords(limit: int = 500) -> dict[str, Any]:
     ensure_db()
     keywords = get_settings()["keywords"]
+    LOGGER.info("Checking keyword matches: limit=%s keywords=%s", limit, keywords)
     matches = persist_keyword_matches(find_keyword_matches(keywords, limit))
     new_matches = [match for match in matches if match.is_new]
     record_job_run("check_keywords", "success", f"新規{len(new_matches)}件 / 合計{len(matches)}件")
+    LOGGER.info("Checked keyword matches: total=%s new=%s", len(matches), len(new_matches))
     return {
         "matches": [match.__dict__ for match in matches],
         "new_matches": [match.__dict__ for match in new_matches],
@@ -343,10 +407,14 @@ def job_lock(job_name: str) -> threading.Lock:
 def run_job_safely(job_name: str, callback: Any) -> None:
     lock = job_lock(job_name)
     if not lock.acquire(blocking=False):
+        LOGGER.info("Skipped job because it is already running: %s", job_name)
         return
     try:
+        LOGGER.info("Starting scheduled job: %s", job_name)
         callback()
+        LOGGER.info("Finished scheduled job: %s", job_name)
     except Exception as exc:  # noqa: BLE001 - job loop should keep running and expose error
+        LOGGER.exception("Scheduled job failed: %s", job_name)
         record_job_run(job_name, "error", str(exc))
     finally:
         lock.release()
@@ -391,6 +459,7 @@ class AppHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        LOGGER.info("GET %s", parsed.path)
         if parsed.path == "/api/health":
             self.write_json({"ok": True, "settings": get_settings(), "jobs": list_job_runs()})
         elif parsed.path == "/api/settings":
@@ -405,6 +474,7 @@ class AppHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        LOGGER.info("POST %s", parsed.path)
         try:
             if parsed.path == "/api/refresh-addresses":
                 payload = self.read_json()
@@ -415,6 +485,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             else:
                 self.write_json({"error": "not found"}, status=404)
         except Exception as exc:  # noqa: BLE001 - return surfaced app errors to UI
+            LOGGER.exception("POST %s failed", parsed.path)
             self.write_json(
                 {"error": str(exc), "traceback": traceback.format_exc(limit=4)},
                 status=500,
@@ -422,13 +493,18 @@ class AppHandler(SimpleHTTPRequestHandler):
 
     def do_PUT(self) -> None:
         parsed = urlparse(self.path)
+        LOGGER.info("PUT %s", parsed.path)
         try:
             if parsed.path == "/api/settings":
                 self.write_json(save_settings(self.read_json()))
             else:
                 self.write_json({"error": "not found"}, status=404)
         except Exception as exc:  # noqa: BLE001 - validation errors are shown in UI
+            LOGGER.exception("PUT %s failed", parsed.path)
             self.write_json({"error": str(exc)}, status=400)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        LOGGER.info("%s - %s", self.address_string(), format % args)
 
     def read_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length") or "0")
@@ -446,9 +522,14 @@ class AppHandler(SimpleHTTPRequestHandler):
 
 
 def main() -> None:
+    setup_logging()
     ensure_db()
+    LOGGER.info("Starting backend: base_dir=%s db_path=%s log_path=%s", BASE_DIR, DB_PATH, LOG_PATH)
     if os.environ.get("OUTLOOK_ADDRESS_DISABLE_SCHEDULER") != "1":
         threading.Thread(target=scheduler_loop, daemon=True).start()
+        LOGGER.info("Scheduler enabled")
+    else:
+        LOGGER.info("Scheduler disabled by OUTLOOK_ADDRESS_DISABLE_SCHEDULER")
     host = os.environ.get("OUTLOOK_ADDRESS_HOST", "127.0.0.1")
     port = int(os.environ.get("OUTLOOK_ADDRESS_PORT", "8765"))
     server = ThreadingHTTPServer((host, port), AppHandler)

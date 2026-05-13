@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import csv
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -11,6 +13,19 @@ from backend import server
 
 
 class BackendServerTest(unittest.TestCase):
+    def test_outlook_com_context_initializes_and_uninitializes_com(self) -> None:
+        calls: list[str] = []
+        fake_pythoncom = types.SimpleNamespace(
+            CoInitialize=lambda: calls.append("init"),
+            CoUninitialize=lambda: calls.append("uninit"),
+        )
+
+        with patch.dict(sys.modules, {"pythoncom": fake_pythoncom}):
+            with server.outlook_com_context():
+                calls.append("body")
+
+        self.assertEqual(calls, ["init", "body", "uninit"])
+
     def test_refresh_addresses_keeps_missing_old_address_with_zero_count(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
