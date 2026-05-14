@@ -30,7 +30,6 @@ import {
 import type { Recipient } from './types'
 
 type FocusedPane = 'left' | 'right'
-type AppPage = 'main' | 'favorites'
 type DatabaseTableName = keyof DatabaseSnapshot
 type DeletableDatabaseTableName = Exclude<DatabaseTableName, 'settings'>
 
@@ -67,7 +66,7 @@ const expandFavoriteAddresses = (
 
 function App() {
   const { recipients, loading, error, reload } = useRecipients()
-  const [page, setPage] = useState<AppPage>('main')
+  const [favoriteModalOpen, setFavoriteModalOpen] = useState(false)
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [focusedPane, setFocusedPane] = useState<FocusedPane>('left')
@@ -362,6 +361,19 @@ function App() {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown)
   }, [])
 
+  useEffect(() => {
+    if (!favoriteModalOpen) {
+      return
+    }
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setFavoriteModalOpen(false)
+      }
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [favoriteModalOpen])
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-gray-100 flex items-center justify-center">
@@ -383,110 +395,8 @@ function App() {
     )
   }
 
-  if (page === 'favorites') {
-    const selectedFavorite = favorites.find(favorite => favorite.name === selectedFavoriteName)
-    const draftAddresses = parseFavoriteAddressText(favoriteAddressText)
-    return (
-      <div className="min-h-screen bg-gray-950 text-gray-100">
-        <header className="border-b border-gray-800 bg-gray-950/95 px-4 py-3">
-          <div className="mx-auto flex max-w-6xl items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setPage('main')}
-              className="h-9 px-3 rounded border border-gray-700 bg-gray-900 text-xs font-semibold text-gray-100 hover:bg-gray-800"
-            >
-              宛先へ戻る
-            </button>
-            <div className="min-w-0 mr-auto">
-              <h1 className="text-lg font-semibold text-gray-50">お気に入り</h1>
-              <p className="text-xs text-gray-400">左で名前を選択し、右で内容を編集</p>
-            </div>
-            <button
-              type="button"
-              onClick={handleCreateFavorite}
-              className="h-9 px-4 rounded border border-gray-700 bg-gray-900 text-xs font-bold text-gray-100 hover:bg-gray-800"
-            >
-              新規
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveSelectedFavorite}
-              className="h-9 px-4 rounded bg-cyan-500 text-xs font-bold text-gray-950 hover:bg-cyan-400"
-            >
-              保存
-            </button>
-          </div>
-        </header>
-
-        {operationError && (
-          <div className="mx-auto mt-3 max-w-6xl rounded border border-red-400/40 bg-red-500/15 px-3 py-2 text-sm text-red-100">
-            エラー: {operationError}
-          </div>
-        )}
-
-        <main className="mx-auto grid max-w-6xl gap-4 p-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="min-h-[calc(100vh-120px)] border border-gray-800 bg-gray-900">
-            <div className="flex items-center justify-between border-b border-gray-800 px-3 py-3">
-              <h2 className="text-sm font-semibold text-gray-100">お気に入り名</h2>
-              <span className="rounded bg-gray-800 px-2 py-1 text-xs text-gray-300">{favorites.length}件</span>
-            </div>
-            <div className="max-h-[calc(100vh-175px)] overflow-auto">
-              {favorites.length === 0 ? (
-                <p className="px-3 py-8 text-center text-xs text-gray-500">お気に入りがありません</p>
-              ) : favorites.map(favorite => (
-                <button
-                  key={favorite.name}
-                  type="button"
-                  onClick={() => handleSelectFavorite(favorite)}
-                  className={`block w-full border-b border-gray-800 px-3 py-3 text-left hover:bg-gray-800 ${
-                    selectedFavoriteName === favorite.name ? 'bg-cyan-500/15 text-cyan-100' : 'text-gray-200'
-                  }`}
-                >
-                  <span className="block truncate text-sm font-semibold" title={favorite.name}>{favorite.name}</span>
-                  <span className="mt-1 block text-xs text-gray-400">{favorite.addresses.length}宛先</span>
-                </button>
-              ))}
-            </div>
-          </aside>
-
-          <section className="min-h-[calc(100vh-120px)] border border-gray-800 bg-gray-900">
-            <div className="grid gap-3 border-b border-gray-800 p-3 md:grid-cols-[minmax(0,1fr)_auto]">
-              <label className="flex min-w-0 flex-col gap-1 text-xs text-gray-300">
-                お気に入り名
-                <input
-                  type="text"
-                  value={favoriteNameDraft}
-                  onChange={event => setFavoriteNameDraft(event.target.value)}
-                  className="h-10 rounded border border-gray-700 bg-gray-950 px-3 text-sm text-gray-100 outline-none focus:border-cyan-400"
-                  placeholder="例: 開発チーム"
-                />
-              </label>
-              <div className="flex items-end gap-2">
-                <button
-                  type="button"
-                  onClick={handleDeleteSelectedFavorite}
-                  className="h-10 px-3 rounded bg-red-600 text-xs font-semibold text-white hover:bg-red-500"
-                >
-                  削除
-                </button>
-              </div>
-            </div>
-            <div className="border-b border-gray-800 px-3 py-2 text-xs text-gray-400">
-              {selectedFavorite ? `${selectedFavorite.name} を編集中` : '新しいお気に入りを編集中'} / {draftAddresses.length}宛先
-            </div>
-            <textarea
-              value={favoriteAddressText}
-              onChange={event => setFavoriteAddressText(event.target.value)}
-              spellCheck={false}
-              className="h-[calc(100vh-235px)] min-h-[420px] w-full resize-none bg-transparent p-4 font-mono text-sm leading-7 text-gray-100 outline-none placeholder:text-gray-600"
-              placeholder={'山田 太郎\n佐藤 一郎\nkeiri@example.com'}
-            />
-          </section>
-        </main>
-        <Toast message={toastMessage} visible={toastVisible} onHide={hideToast} />
-      </div>
-    )
-  }
+  const selectedFavorite = favorites.find(favorite => favorite.name === selectedFavoriteName)
+  const draftAddresses = parseFavoriteAddressText(favoriteAddressText)
 
   return (
     <div className="h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-gray-100 p-2 flex flex-col gap-2">
@@ -536,7 +446,7 @@ function App() {
           </button>
           <button
             type="button"
-            onClick={() => setPage('favorites')}
+            onClick={() => setFavoriteModalOpen(true)}
             className="px-3 py-2 rounded bg-cyan-600 text-white text-xs font-medium hover:bg-cyan-500"
           >
             お気に入り
@@ -720,6 +630,108 @@ function App() {
           />
         </div>
       </div>
+
+      {favoriteModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 p-3 md:p-5"
+          onMouseDown={() => setFavoriteModalOpen(false)}
+        >
+          <section
+            className="mx-auto flex h-full max-w-6xl flex-col border border-gray-700/80 bg-gray-950 text-gray-100 shadow-2xl"
+            onMouseDown={event => event.stopPropagation()}
+          >
+            <header className="shrink-0 border-b border-gray-800 bg-gray-950 px-4 py-3">
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 mr-auto">
+                  <h1 className="text-lg font-semibold text-gray-50">お気に入り</h1>
+                  <p className="text-xs text-gray-400">左で名前を選択し、右で内容を編集</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCreateFavorite}
+                  className="h-9 px-4 rounded border border-gray-700 bg-gray-900 text-xs font-bold text-gray-100 hover:bg-gray-800"
+                >
+                  新規
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSelectedFavorite}
+                  className="h-9 px-4 rounded bg-cyan-500 text-xs font-bold text-gray-950 hover:bg-cyan-400"
+                >
+                  保存
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFavoriteModalOpen(false)}
+                  className="h-9 px-3 rounded bg-gray-100 text-xs font-bold text-gray-950 hover:bg-white"
+                >
+                  閉じる
+                </button>
+              </div>
+            </header>
+
+            <div className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+              <aside className="min-h-0 border border-gray-800 bg-gray-900">
+                <div className="flex items-center justify-between border-b border-gray-800 px-3 py-3">
+                  <h2 className="text-sm font-semibold text-gray-100">お気に入り名</h2>
+                  <span className="rounded bg-gray-800 px-2 py-1 text-xs text-gray-300">{favorites.length}件</span>
+                </div>
+                <div className="max-h-[calc(100vh-170px)] overflow-auto">
+                  {favorites.length === 0 ? (
+                    <p className="px-3 py-8 text-center text-xs text-gray-500">お気に入りがありません</p>
+                  ) : favorites.map(favorite => (
+                    <button
+                      key={favorite.name}
+                      type="button"
+                      onClick={() => handleSelectFavorite(favorite)}
+                      className={`block w-full border-b border-gray-800 px-3 py-3 text-left hover:bg-gray-800 ${
+                        selectedFavoriteName === favorite.name ? 'bg-cyan-500/15 text-cyan-100' : 'text-gray-200'
+                      }`}
+                    >
+                      <span className="block truncate text-sm font-semibold" title={favorite.name}>{favorite.name}</span>
+                      <span className="mt-1 block text-xs text-gray-400">{favorite.addresses.length}宛先</span>
+                    </button>
+                  ))}
+                </div>
+              </aside>
+
+              <section className="min-h-0 border border-gray-800 bg-gray-900">
+                <div className="grid gap-3 border-b border-gray-800 p-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                  <label className="flex min-w-0 flex-col gap-1 text-xs text-gray-300">
+                    お気に入り名
+                    <input
+                      type="text"
+                      value={favoriteNameDraft}
+                      onChange={event => setFavoriteNameDraft(event.target.value)}
+                      className="h-10 rounded border border-gray-700 bg-gray-950 px-3 text-sm text-gray-100 outline-none focus:border-cyan-400"
+                      placeholder="例: 開発チーム"
+                    />
+                  </label>
+                  <div className="flex items-end gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDeleteSelectedFavorite}
+                      className="h-10 px-3 rounded bg-red-600 text-xs font-semibold text-white hover:bg-red-500"
+                    >
+                      削除
+                    </button>
+                  </div>
+                </div>
+                <div className="border-b border-gray-800 px-3 py-2 text-xs text-gray-400">
+                  {selectedFavorite ? `${selectedFavorite.name} を編集中` : '新しいお気に入りを編集中'} / {draftAddresses.length}宛先
+                </div>
+                <textarea
+                  value={favoriteAddressText}
+                  onChange={event => setFavoriteAddressText(event.target.value)}
+                  spellCheck={false}
+                  className="h-[calc(100vh-235px)] min-h-[360px] w-full resize-none bg-transparent p-4 font-mono text-sm leading-7 text-gray-100 outline-none placeholder:text-gray-600"
+                  placeholder={'山田 太郎\n佐藤 一郎\nkeiri@example.com'}
+                />
+              </section>
+            </div>
+          </section>
+        </div>
+      )}
 
       <Toast message={toastMessage} visible={toastVisible} onHide={hideToast} />
     </div>
