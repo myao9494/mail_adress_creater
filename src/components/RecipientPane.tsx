@@ -17,7 +17,7 @@
  * - チェックボックス以外の名前部分をクリック: その名前をクリップボードにコピー
  */
 import { useState, useCallback, useEffect, useRef, type KeyboardEvent } from 'react'
-import type { Recipient } from '../types'
+import type { CheckableRecipient, Recipient } from '../types'
 import { useSearch } from '../hooks/useSearch'
 import { copyToClipboard } from '../utils/clipboard'
 
@@ -27,6 +27,7 @@ type RecipientPaneProps = {
   recipients: Recipient[]
   onCopySuccess: () => void
   onNameCopy: (name: string) => void
+  onAddFavorite: (name: string) => void
   isFocused: boolean
   onFocus: () => void
 }
@@ -43,6 +44,7 @@ export function RecipientPane({
   recipients,
   onCopySuccess,
   onNameCopy,
+  onAddFavorite,
   isFocused,
   onFocus,
 }: RecipientPaneProps) {
@@ -51,6 +53,7 @@ export function RecipientPane({
   const [fontSize, setFontSize] = useState(11)
   const [focusedSection, setFocusedSection] = useState<FocusSection>('search')
   const [focusedIndex, setFocusedIndex] = useState<number>(-1)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; name: string } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
@@ -95,11 +98,24 @@ export function RecipientPane({
     }
   }, [focusedIndex])
 
+  useEffect(() => {
+    if (!contextMenu) {
+      return
+    }
+    const closeMenu = () => setContextMenu(null)
+    window.addEventListener('click', closeMenu)
+    window.addEventListener('keydown', closeMenu)
+    return () => {
+      window.removeEventListener('click', closeMenu)
+      window.removeEventListener('keydown', closeMenu)
+    }
+  }, [contextMenu])
+
   // 名前をクリップボードにコピー
-  const handleNameCopy = useCallback(async (name: string) => {
-    const success = await copyToClipboard([name])
+  const handleRecipientCopy = useCallback(async (recipient: CheckableRecipient) => {
+    const success = await copyToClipboard(recipient.copyNames ?? [recipient.name])
     if (success) {
-      onNameCopy(name)
+      onNameCopy(recipient.name)
     }
   }, [onNameCopy])
 
@@ -193,7 +209,7 @@ export function RecipientPane({
       else if (e.key === 'Enter') {
         e.preventDefault()
         if (focusedIndex >= 0 && focusedIndex < results.length) {
-          handleNameCopy(results[focusedIndex].name)
+          handleRecipientCopy(results[focusedIndex])
         }
       }
       // Space: チェックボックスのトグル
@@ -204,17 +220,19 @@ export function RecipientPane({
         }
       }
     },
-    [results, focusedIndex, handleNameCopy, toggleCheck]
+    [results, focusedIndex, handleRecipientCopy, toggleCheck]
   )
 
   // コピーボタン押下
   const handleCopy = useCallback(async () => {
-    const names = getCheckedNames()
+    const names = results
+      .filter(recipient => recipient.checked)
+      .flatMap(recipient => recipient.copyNames ?? [recipient.name])
     const success = await copyToClipboard(names)
     if (success) {
       onCopySuccess()
     }
-  }, [getCheckedNames, onCopySuccess])
+  }, [onCopySuccess, results])
 
   // 検索実行済みで結果がない場合
   const noResults = !isInitial && results.length === 0
@@ -323,6 +341,11 @@ export function RecipientPane({
                     : 'hover:bg-gray-700/30'
                 }`}
                 style={{ fontSize: `${fontSize}px` }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setContextMenu({ x: e.clientX, y: e.clientY, name: recipient.name })
+                }}
               >
                 <input
                   type="checkbox"
@@ -335,10 +358,11 @@ export function RecipientPane({
                   className="flex-1 text-gray-200 truncate hover:text-blue-300 hover:underline"
                   onClick={(e) => {
                     e.stopPropagation()
-                    handleNameCopy(recipient.name)
+                    handleRecipientCopy(recipient)
                   }}
                   title="クリックでコピー"
                 >
+                  {recipient.favorite && <span className="mr-1 text-cyan-300">お気に入り</span>}
                   {recipient.name}
                 </span>
                 <span className="text-gray-500 ml-1.5 tabular-nums" style={{ fontSize: `${fontSize - 1}px` }}>{recipient.count}</span>
@@ -347,6 +371,24 @@ export function RecipientPane({
           </ul>
         )}
       </div>
+      {contextMenu && (
+        <div
+          className="fixed z-50 min-w-36 rounded border border-gray-700 bg-gray-950 py-1 text-xs text-gray-100 shadow-2xl"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={e => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="w-full px-3 py-2 text-left hover:bg-gray-800"
+            onClick={() => {
+              onAddFavorite(contextMenu.name)
+              setContextMenu(null)
+            }}
+          >
+            お気に入りに追加
+          </button>
+        </div>
+      )}
     </div>
   )
 }

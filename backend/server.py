@@ -107,6 +107,15 @@ def ensure_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS favorites (
+              name TEXT PRIMARY KEY,
+              addresses TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS keyword_matches (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               received_time TEXT NOT NULL,
@@ -211,6 +220,78 @@ def save_settings(payload: dict[str, Any]) -> dict[str, Any]:
             )
         conn.commit()
     return current
+
+
+def normalize_favorite_addresses(addresses: Any) -> list[str]:
+    if isinstance(addresses, str):
+        parts = addresses.replace("、", ";").replace(",", ";").split(";")
+    elif isinstance(addresses, list):
+        parts = [str(item) for item in addresses]
+    else:
+        parts = []
+    return [part.strip() for part in parts if part.strip()]
+
+
+def list_favorites() -> list[dict[str, Any]]:
+    ensure_db()
+    with db_connection() as conn:
+        rows = conn.execute(
+            "SELECT name, addresses, updated_at FROM favorites ORDER BY updated_at DESC, name"
+        ).fetchall()
+    return [
+        {
+            "name": row[0],
+            "addresses": json.loads(row[1]),
+            "updated_at": row[2],
+        }
+        for row in rows
+    ]
+
+
+def save_favorites(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    ensure_db()
+    favorites = payload.get("favorites")
+    if not isinstance(favorites, list):
+        raise ValueError("favorites must be an array")
+
+    normalized: dict[str, list[str]] = {}
+    for favorite in favorites:
+        if not isinstance(favorite, dict):
+            continue
+        name = str(favorite.get("name") or "").strip()
+        addresses = normalize_favorite_addresses(favorite.get("addresses"))
+        if name and addresses:
+            normalized[name] = addresses
+
+    now = utc_now()
+    with db_connection() as conn:
+        conn.execute("DELETE FROM favorites")
+        for name, addresses in normalized.items():
+            conn.execute(
+                "INSERT INTO favorites(name, addresses, updated_at) VALUES(?, ?, ?)",
+                (name, json.dumps(addresses, ensure_ascii=False), now),
+            )
+        conn.commit()
+    return list_favorites()
+
+
+def add_favorite(payload: dict[str, Any]) -> dict[str, Any]:
+    ensure_db()
+    name = str(payload.get("name") or "").strip()
+    addresses = normalize_favorite_addresses(payload.get("addresses"))
+    if not name:
+        raise ValueError("お気に入り名を入力してください")
+    if not addresses:
+        raise ValueError("お気に入りに登録する宛先がありません")
+
+    favorite = {"name": name, "addresses": addresses, "updated_at": utc_now()}
+    with db_connection() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO favorites(name, addresses, updated_at) VALUES(?, ?, ?)",
+            (favorite["name"], json.dumps(favorite["addresses"], ensure_ascii=False), favorite["updated_at"]),
+        )
+        conn.commit()
+    return favorite
 
 
 def read_recipients_csv(path: Path) -> dict[str, int]:
@@ -441,6 +522,16 @@ def list_database() -> dict[str, list[dict[str, Any]]]:
                 "SELECT name, count, updated_at FROM recipients ORDER BY updated_at DESC, count DESC, name"
             )
         ]
+        favorites = [
+            {
+                "name": row["name"],
+                "addresses": json.loads(row["addresses"]),
+                "updated_at": row["updated_at"],
+            }
+            for row in conn.execute(
+                "SELECT name, addresses, updated_at FROM favorites ORDER BY updated_at DESC, name"
+            )
+        ]
         keyword_matches = [
             {
                 "id": row["id"],
@@ -472,6 +563,7 @@ def list_database() -> dict[str, list[dict[str, Any]]]:
     return {
         "settings": settings,
         "recipients": recipients,
+        "favorites": favorites,
         "keyword_matches": keyword_matches,
         "job_runs": job_runs,
     }
@@ -479,7 +571,7 @@ def list_database() -> dict[str, list[dict[str, Any]]]:
 
 def delete_database_records(table: str, keys: list[str]) -> dict[str, Any]:
     ensure_db()
-    if table not in {"recipients", "keyword_matches", "job_runs"}:
+    if table not in {"recipients", "favorites", "keyword_matches", "job_runs"}:
         raise ValueError("削除できないテーブルです")
     if not keys:
         return {"table": table, "deleted": 0}
@@ -487,6 +579,8 @@ def delete_database_records(table: str, keys: list[str]) -> dict[str, Any]:
     with db_connection() as conn:
         if table == "recipients":
             cursor = conn.executemany("DELETE FROM recipients WHERE name = ?", [(key,) for key in keys])
+        elif table == "favorites":
+            cursor = conn.executemany("DELETE FROM favorites WHERE name = ?", [(key,) for key in keys])
         elif table == "keyword_matches":
             ids = [int(key) for key in keys]
             cursor = conn.executemany("DELETE FROM keyword_matches WHERE id = ?", [(row_id,) for row_id in ids])
@@ -587,6 +681,8 @@ class AppHandler(SimpleHTTPRequestHandler):
             self.write_json({"ok": True, "settings": get_settings(), "jobs": list_job_runs()})
         elif parsed.path == "/api/settings":
             self.write_json(get_settings())
+        elif parsed.path == "/api/favorites":
+            self.write_json({"favorites": list_favorites()})
         elif parsed.path == "/api/keyword-matches":
             params = parse_qs(parsed.query)
             self.write_json({"matches": list_keyword_matches(params.get("new_only") == ["1"])})
@@ -609,6 +705,9 @@ class AppHandler(SimpleHTTPRequestHandler):
                 self.write_json(check_keywords(int(payload.get("limit", 500))))
             elif parsed.path == "/api/seed-dummy-data":
                 self.write_json({"inserted": seed_dummy_data(), "database": list_database()})
+            elif parsed.path == "/api/favorites/add":
+                favorite = add_favorite(self.read_json())
+                self.write_json({"favorite": favorite, "favorites": list_favorites()})
             elif parsed.path == "/api/database/delete":
                 payload = self.read_json()
                 result = delete_database_records(
@@ -631,6 +730,8 @@ class AppHandler(SimpleHTTPRequestHandler):
         try:
             if parsed.path == "/api/settings":
                 self.write_json(save_settings(self.read_json()))
+            elif parsed.path == "/api/favorites":
+                self.write_json({"favorites": save_favorites(self.read_json())})
             else:
                 self.write_json({"error": "not found"}, status=404)
         except Exception as exc:  # noqa: BLE001 - validation errors are shown in UI

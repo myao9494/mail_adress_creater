@@ -21,6 +21,7 @@ const defaultProps = {
   recipients: mockRecipients,
   onCopySuccess: () => {},
   onNameCopy: () => {},
+  onAddFavorite: () => {},
   isFocused: false,
   onFocus: () => {},
 }
@@ -142,5 +143,41 @@ describe('RecipientPane', () => {
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('山田 太郎')
     expect(onNameCopy).toHaveBeenCalledWith('山田 太郎')
+  })
+
+  it('お気に入り名のクリックでは展開済みの中身をコピーする', async () => {
+    render(
+      <RecipientPane
+        {...defaultProps}
+        recipients={[
+          { name: '★ 全員', count: 2, copyNames: ['山田 太郎', '佐藤 一郎'], favorite: true },
+        ]}
+      />,
+    )
+
+    const input = screen.getByPlaceholderText('検索キーワードを入力（Enterで実行）')
+    fireEvent.change(input, { target: { value: '全員' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    fireEvent.click(screen.getByText('★ 全員'))
+
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('山田 太郎;佐藤 一郎')
+  })
+
+  it('右クリックメニューからお気に入りに追加できる', () => {
+    const onAddFavorite = vi.fn()
+
+    render(<RecipientPane {...defaultProps} onAddFavorite={onAddFavorite} />)
+
+    const input = screen.getByPlaceholderText('検索キーワードを入力（Enterで実行）')
+    fireEvent.change(input, { target: { value: '山田' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    fireEvent.contextMenu(screen.getByText('山田 太郎'))
+    fireEvent.click(screen.getByText('お気に入りに追加'))
+
+    expect(onAddFavorite).toHaveBeenCalledWith('山田 太郎')
   })
 })

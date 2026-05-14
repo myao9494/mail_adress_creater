@@ -15,9 +15,16 @@ export type KeywordMatch = {
   is_new: boolean
 }
 
+export type Favorite = {
+  name: string
+  addresses: string[]
+  updated_at?: string
+}
+
 export type DatabaseSnapshot = {
   settings: Array<{ key: string; value: string }>
   recipients: Array<{ name: string; count: number; updated_at: string }>
+  favorites: Array<{ name: string; addresses: string[]; updated_at: string }>
   keyword_matches: Array<{
     id: number
     received_time: string
@@ -64,6 +71,24 @@ export async function saveSettings(settings: BackendSettings): Promise<BackendSe
   return requestJson<BackendSettings>('/api/settings', {
     method: 'PUT',
     body: JSON.stringify(settings),
+  })
+}
+
+export async function loadFavorites(): Promise<{ favorites: Favorite[] }> {
+  return requestJson<{ favorites: Favorite[] }>('/api/favorites')
+}
+
+export async function saveFavorites(favorites: Favorite[]): Promise<{ favorites: Favorite[] }> {
+  return requestJson<{ favorites: Favorite[] }>('/api/favorites', {
+    method: 'PUT',
+    body: JSON.stringify({ favorites }),
+  })
+}
+
+export async function addFavorite(name: string, addresses: string[]): Promise<{ favorite: Favorite; favorites: Favorite[] }> {
+  return requestJson<{ favorite: Favorite; favorites: Favorite[] }>('/api/favorites/add', {
+    method: 'POST',
+    body: JSON.stringify({ name, addresses }),
   })
 }
 

@@ -6,25 +6,31 @@
  * - 左右矢印: ペイン間の移動
  * - 上下矢印: ペイン内のアイテム移動
  */
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useRecipients } from './hooks/useRecipients'
 import { RecipientPane } from './components/RecipientPane'
 import { Toast } from './components/Toast'
 import {
   DEFAULT_SETTINGS,
+  addFavorite,
   checkKeywords,
   deleteDatabaseRecords,
+  loadFavorites,
   loadDatabase,
   loadSettings,
   refreshAddresses,
+  saveFavorites,
   saveSettings,
   seedDummyData,
   type BackendSettings,
   type DatabaseSnapshot,
+  type Favorite,
   type KeywordMatch,
 } from './utils/api'
+import type { Recipient } from './types'
 
 type FocusedPane = 'left' | 'right'
+type AppPage = 'main' | 'favorites'
 type DatabaseTableName = keyof DatabaseSnapshot
 type DeletableDatabaseTableName = Exclude<DatabaseTableName, 'settings'>
 
@@ -33,8 +39,35 @@ const formatKeywordText = (keywords: string[]) => keywords.join(',')
 const parseKeywordText = (text: string) =>
   text.split(/[,\n\r、]+/).map(keyword => keyword.trim()).filter(Boolean)
 
+const formatFavoriteAddressText = (addresses: string[]) => addresses.join('\n')
+
+const parseFavoriteAddressText = (text: string) =>
+  text.split(/[\n\r;、,]+/).map(address => address.trim()).filter(Boolean)
+
+const normalizeFavoriteName = (name: string) => name.replace(/^★\s*/, '').trim()
+
+const expandFavoriteAddresses = (
+  name: string,
+  favoriteMap: Map<string, string[]>,
+  expandingNames = new Set<string>(),
+): string[] => {
+  const normalizedName = normalizeFavoriteName(name)
+  const addresses = favoriteMap.get(normalizedName)
+  if (!addresses) {
+    return [name]
+  }
+  if (expandingNames.has(normalizedName)) {
+    return [normalizedName]
+  }
+
+  const nextExpandingNames = new Set(expandingNames)
+  nextExpandingNames.add(normalizedName)
+  return addresses.flatMap(address => expandFavoriteAddresses(address, favoriteMap, nextExpandingNames))
+}
+
 function App() {
   const { recipients, loading, error, reload } = useRecipients()
+  const [page, setPage] = useState<AppPage>('main')
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [focusedPane, setFocusedPane] = useState<FocusedPane>('left')
@@ -48,6 +81,23 @@ function App() {
   const [database, setDatabase] = useState<DatabaseSnapshot | null>(null)
   const [databaseTable, setDatabaseTable] = useState<DatabaseTableName>('keyword_matches')
   const [selectedDatabaseKeys, setSelectedDatabaseKeys] = useState<string[]>([])
+  const [favorites, setFavorites] = useState<Favorite[]>([])
+  const [selectedFavoriteName, setSelectedFavoriteName] = useState('')
+  const [favoriteNameDraft, setFavoriteNameDraft] = useState('')
+  const [favoriteAddressText, setFavoriteAddressText] = useState('')
+
+  const searchableRecipients = useMemo<Recipient[]>(() => {
+    const favoriteMap = new Map(favorites.map(favorite => [favorite.name, favorite.addresses]))
+    return [
+      ...favorites.map(favorite => ({
+        name: `★ ${favorite.name}`,
+        count: favorite.addresses.length,
+        copyNames: expandFavoriteAddresses(favorite.name, favoriteMap),
+        favorite: true,
+      })),
+      ...recipients,
+    ]
+  }, [favorites, recipients])
 
   const showToast = useCallback((message: string) => {
     setToastMessage(message)
@@ -66,6 +116,22 @@ function App() {
       })
       .catch(err => {
         setOperationError(err instanceof Error ? err.message : '設定の読み込みに失敗しました')
+      })
+  }, [])
+
+  useEffect(() => {
+    loadFavorites()
+      .then(result => {
+        setFavorites(result.favorites)
+        const firstFavorite = result.favorites[0]
+        if (firstFavorite) {
+          setSelectedFavoriteName(firstFavorite.name)
+          setFavoriteNameDraft(firstFavorite.name)
+          setFavoriteAddressText(formatFavoriteAddressText(firstFavorite.addresses))
+        }
+      })
+      .catch(err => {
+        setOperationError(err instanceof Error ? err.message : 'お気に入りの読み込みに失敗しました')
       })
   }, [])
 
@@ -165,6 +231,13 @@ function App() {
     try {
       const result = await deleteDatabaseRecords(databaseTable as DeletableDatabaseTableName, selectedDatabaseKeys)
       setDatabase(result.database)
+      if (databaseTable === 'favorites') {
+        setFavorites(result.database.favorites)
+        const nextSelected = result.database.favorites.find(favorite => favorite.name === selectedFavoriteName) ?? result.database.favorites[0]
+        setSelectedFavoriteName(nextSelected?.name ?? '')
+        setFavoriteNameDraft(nextSelected?.name ?? '')
+        setFavoriteAddressText(formatFavoriteAddressText(nextSelected?.addresses ?? []))
+      }
       setSelectedDatabaseKeys([])
       await reload()
       showToast(`${result.result.deleted}件を削除しました`)
@@ -173,7 +246,97 @@ function App() {
     } finally {
       setRunningAction(null)
     }
-  }, [databaseTable, reload, selectedDatabaseKeys, showToast])
+  }, [databaseTable, reload, selectedDatabaseKeys, selectedFavoriteName, showToast])
+
+  const handleSelectFavorite = useCallback((favorite: Favorite) => {
+    setSelectedFavoriteName(favorite.name)
+    setFavoriteNameDraft(favorite.name)
+    setFavoriteAddressText(formatFavoriteAddressText(favorite.addresses))
+  }, [])
+
+  const handleCreateFavorite = useCallback(() => {
+    let index = favorites.length + 1
+    let name = `新しいお気に入り${index}`
+    while (favorites.some(favorite => favorite.name === name)) {
+      index += 1
+      name = `新しいお気に入り${index}`
+    }
+    setSelectedFavoriteName('')
+    setFavoriteNameDraft(name)
+    setFavoriteAddressText('')
+  }, [favorites])
+
+  const handleSaveSelectedFavorite = useCallback(async () => {
+    setOperationError(null)
+    const name = favoriteNameDraft.trim()
+    const addresses = parseFavoriteAddressText(favoriteAddressText)
+    if (!name) {
+      setOperationError('お気に入り名を入力してください')
+      return
+    }
+    if (addresses.length === 0) {
+      setOperationError('お気に入りの内容を入力してください')
+      return
+    }
+    try {
+      const nextFavorites = [
+        ...favorites.filter(favorite => favorite.name !== selectedFavoriteName && favorite.name !== name),
+        { name, addresses },
+      ]
+      const result = await saveFavorites(nextFavorites)
+      setFavorites(result.favorites)
+      const savedFavorite = result.favorites.find(favorite => favorite.name === name)
+      setSelectedFavoriteName(savedFavorite?.name ?? name)
+      setFavoriteNameDraft(savedFavorite?.name ?? name)
+      setFavoriteAddressText(formatFavoriteAddressText(savedFavorite?.addresses ?? addresses))
+      showToast('お気に入りを保存しました')
+    } catch (err) {
+      setOperationError(err instanceof Error ? err.message : 'お気に入りの保存に失敗しました')
+    }
+  }, [favoriteAddressText, favoriteNameDraft, favorites, selectedFavoriteName, showToast])
+
+  const handleDeleteSelectedFavorite = useCallback(async () => {
+    if (!selectedFavoriteName) {
+      setFavoriteNameDraft('')
+      setFavoriteAddressText('')
+      return
+    }
+    const confirmed = window.confirm(`${selectedFavoriteName} を削除します。よろしいですか？`)
+    if (!confirmed) {
+      return
+    }
+    setOperationError(null)
+    try {
+      const result = await saveFavorites(favorites.filter(favorite => favorite.name !== selectedFavoriteName))
+      setFavorites(result.favorites)
+      const nextFavorite = result.favorites[0]
+      setSelectedFavoriteName(nextFavorite?.name ?? '')
+      setFavoriteNameDraft(nextFavorite?.name ?? '')
+      setFavoriteAddressText(formatFavoriteAddressText(nextFavorite?.addresses ?? []))
+      showToast('お気に入りを削除しました')
+    } catch (err) {
+      setOperationError(err instanceof Error ? err.message : 'お気に入りの削除に失敗しました')
+    }
+  }, [favorites, selectedFavoriteName, showToast])
+
+  const handleAddFavorite = useCallback(async (recipientName: string) => {
+    const cleanName = recipientName.replace(/^★\s*/, '')
+    const favoriteName = window.prompt('お気に入り名', cleanName)
+    if (!favoriteName) {
+      return
+    }
+    setOperationError(null)
+    try {
+      const result = await addFavorite(favoriteName, [cleanName])
+      setFavorites(result.favorites)
+      setSelectedFavoriteName(result.favorite.name)
+      setFavoriteNameDraft(result.favorite.name)
+      setFavoriteAddressText(formatFavoriteAddressText(result.favorite.addresses))
+      showToast(`${result.favorite.name} をお気に入りに追加しました`)
+    } catch (err) {
+      setOperationError(err instanceof Error ? err.message : 'お気に入り追加に失敗しました')
+    }
+  }, [showToast])
 
   // グローバルキーボードイベント（左右矢印でペイン切替）
   useEffect(() => {
@@ -216,6 +379,111 @@ function App() {
         <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3 text-red-400 text-sm">
           エラー: {error}
         </div>
+      </div>
+    )
+  }
+
+  if (page === 'favorites') {
+    const selectedFavorite = favorites.find(favorite => favorite.name === selectedFavoriteName)
+    const draftAddresses = parseFavoriteAddressText(favoriteAddressText)
+    return (
+      <div className="min-h-screen bg-gray-950 text-gray-100">
+        <header className="border-b border-gray-800 bg-gray-950/95 px-4 py-3">
+          <div className="mx-auto flex max-w-6xl items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setPage('main')}
+              className="h-9 px-3 rounded border border-gray-700 bg-gray-900 text-xs font-semibold text-gray-100 hover:bg-gray-800"
+            >
+              宛先へ戻る
+            </button>
+            <div className="min-w-0 mr-auto">
+              <h1 className="text-lg font-semibold text-gray-50">お気に入り</h1>
+              <p className="text-xs text-gray-400">左で名前を選択し、右で内容を編集</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleCreateFavorite}
+              className="h-9 px-4 rounded border border-gray-700 bg-gray-900 text-xs font-bold text-gray-100 hover:bg-gray-800"
+            >
+              新規
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveSelectedFavorite}
+              className="h-9 px-4 rounded bg-cyan-500 text-xs font-bold text-gray-950 hover:bg-cyan-400"
+            >
+              保存
+            </button>
+          </div>
+        </header>
+
+        {operationError && (
+          <div className="mx-auto mt-3 max-w-6xl rounded border border-red-400/40 bg-red-500/15 px-3 py-2 text-sm text-red-100">
+            エラー: {operationError}
+          </div>
+        )}
+
+        <main className="mx-auto grid max-w-6xl gap-4 p-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <aside className="min-h-[calc(100vh-120px)] border border-gray-800 bg-gray-900">
+            <div className="flex items-center justify-between border-b border-gray-800 px-3 py-3">
+              <h2 className="text-sm font-semibold text-gray-100">お気に入り名</h2>
+              <span className="rounded bg-gray-800 px-2 py-1 text-xs text-gray-300">{favorites.length}件</span>
+            </div>
+            <div className="max-h-[calc(100vh-175px)] overflow-auto">
+              {favorites.length === 0 ? (
+                <p className="px-3 py-8 text-center text-xs text-gray-500">お気に入りがありません</p>
+              ) : favorites.map(favorite => (
+                <button
+                  key={favorite.name}
+                  type="button"
+                  onClick={() => handleSelectFavorite(favorite)}
+                  className={`block w-full border-b border-gray-800 px-3 py-3 text-left hover:bg-gray-800 ${
+                    selectedFavoriteName === favorite.name ? 'bg-cyan-500/15 text-cyan-100' : 'text-gray-200'
+                  }`}
+                >
+                  <span className="block truncate text-sm font-semibold" title={favorite.name}>{favorite.name}</span>
+                  <span className="mt-1 block text-xs text-gray-400">{favorite.addresses.length}宛先</span>
+                </button>
+              ))}
+            </div>
+          </aside>
+
+          <section className="min-h-[calc(100vh-120px)] border border-gray-800 bg-gray-900">
+            <div className="grid gap-3 border-b border-gray-800 p-3 md:grid-cols-[minmax(0,1fr)_auto]">
+              <label className="flex min-w-0 flex-col gap-1 text-xs text-gray-300">
+                お気に入り名
+                <input
+                  type="text"
+                  value={favoriteNameDraft}
+                  onChange={event => setFavoriteNameDraft(event.target.value)}
+                  className="h-10 rounded border border-gray-700 bg-gray-950 px-3 text-sm text-gray-100 outline-none focus:border-cyan-400"
+                  placeholder="例: 開発チーム"
+                />
+              </label>
+              <div className="flex items-end gap-2">
+                <button
+                  type="button"
+                  onClick={handleDeleteSelectedFavorite}
+                  className="h-10 px-3 rounded bg-red-600 text-xs font-semibold text-white hover:bg-red-500"
+                >
+                  削除
+                </button>
+              </div>
+            </div>
+            <div className="border-b border-gray-800 px-3 py-2 text-xs text-gray-400">
+              {selectedFavorite ? `${selectedFavorite.name} を編集中` : '新しいお気に入りを編集中'} / {draftAddresses.length}宛先
+            </div>
+            <textarea
+              value={favoriteAddressText}
+              onChange={event => setFavoriteAddressText(event.target.value)}
+              spellCheck={false}
+              className="h-[calc(100vh-235px)] min-h-[420px] w-full resize-none bg-transparent p-4 font-mono text-sm leading-7 text-gray-100 outline-none placeholder:text-gray-600"
+              placeholder={'山田 太郎\n佐藤 一郎\nkeiri@example.com'}
+            />
+          </section>
+        </main>
+        <Toast message={toastMessage} visible={toastVisible} onHide={hideToast} />
       </div>
     )
   }
@@ -265,6 +533,13 @@ function App() {
             className="px-3 py-2 rounded bg-slate-700 text-white text-xs font-medium hover:bg-slate-600 disabled:bg-gray-600 disabled:cursor-wait"
           >
             {runningAction === 'database' ? '読込中...' : 'DB表示'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setPage('favorites')}
+            className="px-3 py-2 rounded bg-cyan-600 text-white text-xs font-medium hover:bg-cyan-500"
+          >
+            お気に入り
           </button>
         </div>
         {menuOpen && (
@@ -364,7 +639,7 @@ function App() {
                 <h2 className="text-base font-semibold text-gray-100">DB閲覧</h2>
                 <p className="text-[11px] text-gray-400">最新データを上に表示しています</p>
               </div>
-              {(['keyword_matches', 'recipients', 'job_runs', 'settings'] as DatabaseTableName[]).map(table => (
+              {(['keyword_matches', 'recipients', 'favorites', 'job_runs', 'settings'] as DatabaseTableName[]).map(table => (
                 <button
                   key={table}
                   type="button"
@@ -422,7 +697,8 @@ function App() {
           <RecipientPane
             title="宛先（To）"
             buttonLabel="宛先作成"
-            recipients={recipients}
+            recipients={searchableRecipients}
+            onAddFavorite={handleAddFavorite}
             onCopySuccess={() => showToast('宛先をコピーしました')}
             onNameCopy={(name) => showToast(`${name} をコピーしました`)}
             isFocused={focusedPane === 'left'}
@@ -435,7 +711,8 @@ function App() {
           <RecipientPane
             title="CC"
             buttonLabel="CC作成"
-            recipients={recipients}
+            recipients={searchableRecipients}
+            onAddFavorite={handleAddFavorite}
             onCopySuccess={() => showToast('CCをコピーしました')}
             onNameCopy={(name) => showToast(`${name} をコピーしました`)}
             isFocused={focusedPane === 'right'}
@@ -540,6 +817,9 @@ function getDatabaseRowKey(table: DatabaseTableName, row: DatabaseSnapshot[Datab
     return String(row.id)
   }
   if (table === 'recipients' && 'name' in row) {
+    return row.name
+  }
+  if (table === 'favorites' && 'name' in row) {
     return row.name
   }
   if (table === 'job_runs' && 'job_name' in row) {

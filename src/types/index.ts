@@ -10,6 +10,10 @@ export type Recipient = {
   name: string
   /** 送信回数（表示・ソート用） */
   count: number
+  /** コピー時に展開する宛先名。未指定ならnameを使う */
+  copyNames?: string[]
+  /** お気に入りとして表示するか */
+  favorite?: boolean
 }
 
 /**

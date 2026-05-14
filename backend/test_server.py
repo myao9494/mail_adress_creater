@@ -114,6 +114,25 @@ class BackendServerTest(unittest.TestCase):
             self.assertEqual(snapshot["recipients"][0]["name"], "新しい宛先")
             self.assertEqual(snapshot["keyword_matches"][0]["line"], "新しい通知")
 
+    def test_save_and_add_favorites(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "backend" / "data" / "app.sqlite3"
+
+            with patch.object(server, "DB_PATH", db_path):
+                server.ensure_db()
+                saved = server.save_favorites({
+                    "favorites": [
+                        {"name": "開発チーム", "addresses": ["山田 太郎", "佐藤 一郎"]},
+                    ],
+                })
+                added = server.add_favorite({"name": "経理", "addresses": "keiri@example.com; 山田 花子"})
+                favorites = server.list_favorites()
+
+            self.assertEqual(saved[0]["name"], "開発チーム")
+            self.assertEqual(saved[0]["addresses"], ["山田 太郎", "佐藤 一郎"])
+            self.assertEqual(added["name"], "経理")
+            self.assertEqual({favorite["name"] for favorite in favorites}, {"開発チーム", "経理"})
+
     def test_seed_dummy_data_populates_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)

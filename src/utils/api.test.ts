@@ -2,7 +2,7 @@
  * バックエンドAPIユーティリティのテスト
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { checkKeywords, deleteDatabaseRecords, loadDatabase, loadSettings, saveSettings, seedDummyData } from './api'
+import { addFavorite, checkKeywords, deleteDatabaseRecords, loadDatabase, loadFavorites, loadSettings, saveFavorites, saveSettings, seedDummyData } from './api'
 
 describe('api utilities', () => {
   afterEach(() => {
@@ -68,6 +68,7 @@ describe('api utilities', () => {
       json: () => Promise.resolve({
         settings: [],
         recipients: [{ name: '山田 太郎', count: 12, updated_at: '2026-05-14T00:00:00+00:00' }],
+        favorites: [],
         keyword_matches: [],
         job_runs: [],
       }),
@@ -83,7 +84,7 @@ describe('api utilities', () => {
       ok: true,
       json: () => Promise.resolve({
         inserted: { recipients: 4, keyword_matches: 3, job_runs: 2 },
-        database: { settings: [], recipients: [], keyword_matches: [], job_runs: [] },
+        database: { settings: [], recipients: [], favorites: [], keyword_matches: [], job_runs: [] },
       }),
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -100,7 +101,7 @@ describe('api utilities', () => {
       ok: true,
       json: () => Promise.resolve({
         result: { table: 'recipients', deleted: 1 },
-        database: { settings: [], recipients: [], keyword_matches: [], job_runs: [] },
+        database: { settings: [], recipients: [], favorites: [], keyword_matches: [], job_runs: [] },
       }),
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -110,6 +111,52 @@ describe('api utilities', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/database/delete', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ table: 'recipients', keys: ['山田 太郎'] }),
+    }))
+  })
+
+  it('お気に入りを読み込む', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        favorites: [{ name: '開発チーム', addresses: ['山田 太郎'], updated_at: '2026-05-14T00:00:00+00:00' }],
+      }),
+    }))
+
+    await expect(loadFavorites()).resolves.toEqual({
+      favorites: [expect.objectContaining({ name: '開発チーム', addresses: ['山田 太郎'] })],
+    })
+  })
+
+  it('お気に入り保存APIを呼び出す', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ favorites: [] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await saveFavorites([{ name: '開発チーム', addresses: ['山田 太郎'] }])
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/favorites', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ favorites: [{ name: '開発チーム', addresses: ['山田 太郎'] }] }),
+    }))
+  })
+
+  it('お気に入り追加APIを呼び出す', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        favorite: { name: '開発チーム', addresses: ['山田 太郎'] },
+        favorites: [{ name: '開発チーム', addresses: ['山田 太郎'] }],
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await addFavorite('開発チーム', ['山田 太郎'])
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/favorites/add', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ name: '開発チーム', addresses: ['山田 太郎'] }),
     }))
   })
 })
