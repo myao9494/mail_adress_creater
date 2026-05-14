@@ -15,6 +15,20 @@ export type KeywordMatch = {
   is_new: boolean
 }
 
+export type DatabaseSnapshot = {
+  settings: Array<{ key: string; value: string }>
+  recipients: Array<{ name: string; count: number; updated_at: string }>
+  keyword_matches: Array<{
+    id: number
+    received_time: string
+    subject: string
+    line: string
+    keyword: string
+    first_seen_at: string
+  }>
+  job_runs: Array<{ job_name: string; last_run_at: string; status: string; message: string }>
+}
+
 export type KeywordCheckResult = {
   matches: KeywordMatch[]
   new_matches: KeywordMatch[]
@@ -64,5 +78,25 @@ export async function checkKeywords(): Promise<KeywordCheckResult> {
   return requestJson<KeywordCheckResult>('/api/check-keywords', {
     method: 'POST',
     body: JSON.stringify({ limit: 500 }),
+  })
+}
+
+export async function loadDatabase(): Promise<DatabaseSnapshot> {
+  return requestJson<DatabaseSnapshot>('/api/database')
+}
+
+export async function seedDummyData(): Promise<{ inserted: Record<string, number>; database: DatabaseSnapshot }> {
+  return requestJson<{ inserted: Record<string, number>; database: DatabaseSnapshot }>('/api/seed-dummy-data', {
+    method: 'POST',
+  })
+}
+
+export async function deleteDatabaseRecords(
+  table: Exclude<keyof DatabaseSnapshot, 'settings'>,
+  keys: string[],
+): Promise<{ result: { table: string; deleted: number }; database: DatabaseSnapshot }> {
+  return requestJson<{ result: { table: string; deleted: number }; database: DatabaseSnapshot }>('/api/database/delete', {
+    method: 'POST',
+    body: JSON.stringify({ table, keys }),
   })
 }

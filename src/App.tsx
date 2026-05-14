@@ -13,14 +13,20 @@ import { Toast } from './components/Toast'
 import {
   DEFAULT_SETTINGS,
   checkKeywords,
+  deleteDatabaseRecords,
+  loadDatabase,
   loadSettings,
   refreshAddresses,
   saveSettings,
+  seedDummyData,
   type BackendSettings,
+  type DatabaseSnapshot,
   type KeywordMatch,
 } from './utils/api'
 
 type FocusedPane = 'left' | 'right'
+type DatabaseTableName = keyof DatabaseSnapshot
+type DeletableDatabaseTableName = Exclude<DatabaseTableName, 'settings'>
 
 const formatKeywordText = (keywords: string[]) => keywords.join(',')
 
@@ -37,7 +43,11 @@ function App() {
   const [keywordText, setKeywordText] = useState(formatKeywordText(DEFAULT_SETTINGS.keywords))
   const [newMatches, setNewMatches] = useState<KeywordMatch[]>([])
   const [operationError, setOperationError] = useState<string | null>(null)
-  const [runningAction, setRunningAction] = useState<'addresses' | 'keywords' | null>(null)
+  const [runningAction, setRunningAction] = useState<'addresses' | 'keywords' | 'database' | 'dummy' | null>(null)
+  const [databaseOpen, setDatabaseOpen] = useState(false)
+  const [database, setDatabase] = useState<DatabaseSnapshot | null>(null)
+  const [databaseTable, setDatabaseTable] = useState<DatabaseTableName>('keyword_matches')
+  const [selectedDatabaseKeys, setSelectedDatabaseKeys] = useState<string[]>([])
 
   const showToast = useCallback((message: string) => {
     setToastMessage(message)
@@ -107,6 +117,63 @@ function App() {
       setOperationError(err instanceof Error ? err.message : '設定の保存に失敗しました')
     }
   }, [keywordText, settings.address_interval_minutes, settings.keyword_interval_minutes, showToast])
+
+  const handleLoadDatabase = useCallback(async () => {
+    setRunningAction('database')
+    setOperationError(null)
+    try {
+      const snapshot = await loadDatabase()
+      setDatabase(snapshot)
+      setDatabaseOpen(true)
+      setSelectedDatabaseKeys([])
+      showToast('DBを読み込みました')
+    } catch (err) {
+      setOperationError(err instanceof Error ? err.message : 'DBの読み込みに失敗しました')
+    } finally {
+      setRunningAction(null)
+    }
+  }, [showToast])
+
+  const handleSeedDummyData = useCallback(async () => {
+    setRunningAction('dummy')
+    setOperationError(null)
+    try {
+      const result = await seedDummyData()
+      setDatabase(result.database)
+      setDatabaseOpen(true)
+      setSelectedDatabaseKeys([])
+      await reload()
+      showToast(`ダミーデータを投入しました（宛先 ${result.inserted.recipients}件）`)
+    } catch (err) {
+      setOperationError(err instanceof Error ? err.message : 'ダミーデータ投入に失敗しました')
+    } finally {
+      setRunningAction(null)
+    }
+  }, [reload, showToast])
+
+  const handleDeleteDatabaseRows = useCallback(async () => {
+    if (databaseTable === 'settings' || selectedDatabaseKeys.length === 0) {
+      return
+    }
+    const confirmed = window.confirm(`${databaseTable} の選択レコード ${selectedDatabaseKeys.length}件を削除します。よろしいですか？`)
+    if (!confirmed) {
+      return
+    }
+
+    setRunningAction('database')
+    setOperationError(null)
+    try {
+      const result = await deleteDatabaseRecords(databaseTable as DeletableDatabaseTableName, selectedDatabaseKeys)
+      setDatabase(result.database)
+      setSelectedDatabaseKeys([])
+      await reload()
+      showToast(`${result.result.deleted}件を削除しました`)
+    } catch (err) {
+      setOperationError(err instanceof Error ? err.message : 'DBレコード削除に失敗しました')
+    } finally {
+      setRunningAction(null)
+    }
+  }, [databaseTable, reload, selectedDatabaseKeys, showToast])
 
   // グローバルキーボードイベント（左右矢印でペイン切替）
   useEffect(() => {
@@ -191,9 +258,17 @@ function App() {
           >
             {runningAction === 'keywords' ? '確認中...' : '職アドキーワードチェック'}
           </button>
+          <button
+            type="button"
+            onClick={handleLoadDatabase}
+            disabled={runningAction !== null}
+            className="px-3 py-2 rounded bg-slate-700 text-white text-xs font-medium hover:bg-slate-600 disabled:bg-gray-600 disabled:cursor-wait"
+          >
+            {runningAction === 'database' ? '読込中...' : 'DB表示'}
+          </button>
         </div>
         {menuOpen && (
-          <div className="mt-2 grid gap-2 md:grid-cols-[1fr_220px_220px_auto] bg-gray-900/80 border border-gray-700/60 rounded p-2">
+          <div className="mt-2 grid gap-2 md:grid-cols-[1fr_220px_220px_auto_auto] bg-gray-900/80 border border-gray-700/60 rounded p-2">
             <label className="flex flex-col gap-1 text-[11px] text-gray-300">
               キーワード
               <input
@@ -235,6 +310,16 @@ function App() {
                 設定保存
               </button>
             </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={handleSeedDummyData}
+                disabled={runningAction !== null}
+                className="w-full px-3 py-2 rounded bg-amber-400 text-gray-950 text-xs font-semibold hover:bg-amber-300 disabled:bg-gray-600 disabled:text-gray-300 disabled:cursor-wait"
+              >
+                {runningAction === 'dummy' ? '投入中...' : 'ダミーデータ投入'}
+              </button>
+            </div>
           </div>
         )}
       </header>
@@ -271,6 +356,65 @@ function App() {
         </section>
       )}
 
+      {databaseOpen && database && (
+        <div className="fixed inset-0 z-40 bg-black/70 p-3 md:p-5">
+          <section className="h-full min-h-0 flex flex-col bg-gray-950 border border-gray-700/80 rounded-lg shadow-2xl">
+            <div className="shrink-0 flex flex-wrap items-center gap-2 border-b border-gray-800 px-3 py-3">
+              <div className="mr-auto">
+                <h2 className="text-base font-semibold text-gray-100">DB閲覧</h2>
+                <p className="text-[11px] text-gray-400">最新データを上に表示しています</p>
+              </div>
+              {(['keyword_matches', 'recipients', 'job_runs', 'settings'] as DatabaseTableName[]).map(table => (
+                <button
+                  key={table}
+                  type="button"
+                  onClick={() => {
+                    setDatabaseTable(table)
+                    setSelectedDatabaseKeys([])
+                  }}
+                  className={`px-3 py-2 rounded border text-xs ${
+                    databaseTable === table
+                      ? 'bg-blue-600 border-blue-500 text-white'
+                      : 'bg-gray-900 border-gray-700 text-gray-300 hover:bg-gray-800'
+                  }`}
+                >
+                  {table} ({database[table].length})
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={handleLoadDatabase}
+                disabled={runningAction !== null}
+                className="px-3 py-2 rounded bg-gray-800 text-xs text-gray-100 hover:bg-gray-700 disabled:cursor-wait"
+              >
+                更新
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteDatabaseRows}
+                disabled={databaseTable === 'settings' || selectedDatabaseKeys.length === 0 || runningAction !== null}
+                className="px-3 py-2 rounded bg-red-600 text-xs font-semibold text-white hover:bg-red-500 disabled:bg-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed"
+              >
+                選択削除 ({selectedDatabaseKeys.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setDatabaseOpen(false)}
+                className="px-3 py-2 rounded bg-gray-100 text-xs font-semibold text-gray-950 hover:bg-white"
+              >
+                閉じる
+              </button>
+            </div>
+            <DatabaseTable
+              snapshot={database}
+              table={databaseTable}
+              selectedKeys={selectedDatabaseKeys}
+              onSelectedKeysChange={setSelectedDatabaseKeys}
+            />
+          </section>
+        </div>
+      )}
+
       {/* 2ペイン */}
       <div className="flex gap-2 min-h-0 flex-1">
         {/* 宛先（To）ペイン */}
@@ -303,6 +447,108 @@ function App() {
       <Toast message={toastMessage} visible={toastVisible} onHide={hideToast} />
     </div>
   )
+}
+
+function DatabaseTable({
+  snapshot,
+  table,
+  selectedKeys,
+  onSelectedKeysChange,
+}: {
+  snapshot: DatabaseSnapshot
+  table: DatabaseTableName
+  selectedKeys: string[]
+  onSelectedKeysChange: (keys: string[]) => void
+}) {
+  const rows = snapshot[table]
+  const columns = rows.length > 0 ? Object.keys(rows[0]) : []
+  const canDelete = table !== 'settings'
+  const rowKeys = rows.map(row => getDatabaseRowKey(table, row))
+  const selectedKeySet = new Set(selectedKeys)
+  const allSelected = canDelete && rowKeys.length > 0 && rowKeys.every(key => selectedKeySet.has(key))
+
+  const toggleAllRows = (checked: boolean) => {
+    onSelectedKeysChange(checked ? rowKeys : [])
+  }
+
+  const toggleRow = (key: string, checked: boolean) => {
+    if (checked) {
+      onSelectedKeysChange([...selectedKeys, key])
+      return
+    }
+    onSelectedKeysChange(selectedKeys.filter(selectedKey => selectedKey !== key))
+  }
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto overscroll-contain bg-gray-950">
+      {rows.length === 0 ? (
+        <div className="px-3 py-6 text-center text-xs text-gray-400">データがありません</div>
+      ) : (
+        <table className="w-full min-w-max text-left text-xs">
+          <thead className="sticky top-0 bg-gray-900 text-gray-300">
+            <tr>
+              <th className="w-10 px-3 py-2 border-b border-gray-800">
+                {canDelete && (
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={event => toggleAllRows(event.target.checked)}
+                    className="h-4 w-4 accent-red-500"
+                    aria-label="全レコードを選択"
+                  />
+                )}
+              </th>
+              {columns.map(column => (
+                <th key={column} className="px-3 py-2 font-semibold whitespace-nowrap border-b border-gray-800">
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-800 text-gray-200">
+            {rows.map((row, rowIndex) => (
+              <tr key={rowIndex} className="hover:bg-gray-900/80">
+                <td className="px-3 py-2 align-top">
+                  {canDelete && (
+                    <input
+                      type="checkbox"
+                      checked={selectedKeySet.has(rowKeys[rowIndex])}
+                      onChange={event => toggleRow(rowKeys[rowIndex], event.target.checked)}
+                      className="h-4 w-4 accent-red-500"
+                      aria-label={`${rowKeys[rowIndex]}を選択`}
+                    />
+                  )}
+                </td>
+                {columns.map(column => (
+                  <td key={column} className="px-3 py-2 align-top max-w-[720px]">
+                    <span className="block whitespace-pre-wrap break-words" title={String(row[column as keyof typeof row])}>
+                      {String(row[column as keyof typeof row])}
+                    </span>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
+function getDatabaseRowKey(table: DatabaseTableName, row: DatabaseSnapshot[DatabaseTableName][number]) {
+  if (table === 'keyword_matches' && 'id' in row) {
+    return String(row.id)
+  }
+  if (table === 'recipients' && 'name' in row) {
+    return row.name
+  }
+  if (table === 'job_runs' && 'job_name' in row) {
+    return row.job_name
+  }
+  if (table === 'settings' && 'key' in row) {
+    return row.key
+  }
+  return JSON.stringify(row)
 }
 
 export default App

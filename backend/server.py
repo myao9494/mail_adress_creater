@@ -76,9 +76,18 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+@contextmanager
+def db_connection() -> Any:
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 def ensure_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connection() as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS settings (
@@ -127,10 +136,54 @@ def ensure_db() -> None:
         conn.commit()
 
 
+def seed_dummy_data() -> dict[str, int]:
+    """Outlookを使えない検証環境向けに、画面確認用のサンプルデータを保存する。"""
+    ensure_db()
+    recipients = [
+        ("山田 太郎", 12),
+        ("佐藤 一郎", 8),
+        ("職アド 管理者", 5),
+        ("テスト 利用者", 0),
+    ]
+    matches = [
+        KeywordMatch(
+            received_time="2026-05-14T09:30:00+09:00",
+            subject="職アドからのお知らせ: 棚卸対応",
+            line="棚卸の回答期限は本日17時です。",
+            keyword="棚卸",
+            is_new=False,
+        ),
+        KeywordMatch(
+            received_time="2026-05-13T16:45:00+09:00",
+            subject="職アドからのお知らせ: ユーザID確認",
+            line="ユーザIDの申請内容を確認してください。",
+            keyword="ユーザID",
+            is_new=False,
+        ),
+        KeywordMatch(
+            received_time="2026-05-12T11:15:00+09:00",
+            subject="職アドからのお知らせ: 棚おろし準備",
+            line="棚おろし前の事前チェックをお願いします。",
+            keyword="棚おろし",
+            is_new=False,
+        ),
+    ]
+    save_recipients(recipients)
+    persisted_matches = persist_keyword_matches(matches)
+    record_job_run("refresh_addresses", "success", "ダミーデータを保存しました")
+    record_job_run("check_keywords", "success", f"ダミーデータ {len(matches)}件を保存しました")
+    write_recipients_csv(recipients)
+    return {
+        "recipients": len(recipients),
+        "keyword_matches": sum(1 for match in persisted_matches if match.is_new),
+        "job_runs": 2,
+    }
+
+
 def get_settings() -> dict[str, Any]:
     ensure_db()
     settings = dict(DEFAULT_SETTINGS)
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connection() as conn:
         for key, value in conn.execute("SELECT key, value FROM settings"):
             settings[key] = json.loads(value)
     return settings
@@ -150,7 +203,7 @@ def save_settings(payload: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError(f"{key} must be greater than 0")
             current[key] = value
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connection() as conn:
         for key, value in current.items():
             conn.execute(
                 "INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)",
@@ -184,7 +237,7 @@ def write_recipients_csv(rows: list[tuple[str, int]]) -> None:
 
 def save_recipients(rows: list[tuple[str, int]]) -> None:
     now = utc_now()
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connection() as conn:
         for name, count in rows:
             conn.execute(
                 "INSERT OR REPLACE INTO recipients(name, count, updated_at) VALUES(?, ?, ?)",
@@ -316,7 +369,7 @@ def find_keyword_matches(keywords: list[str], limit: int = 500) -> list[KeywordM
 def persist_keyword_matches(matches: list[KeywordMatch]) -> list[KeywordMatch]:
     now = utc_now()
     persisted: list[KeywordMatch] = []
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connection() as conn:
         for match in matches:
             cursor = conn.execute(
                 """
@@ -359,7 +412,7 @@ def list_keyword_matches(new_only: bool = False) -> list[dict[str, Any]]:
     if new_only:
         return []
     query = "SELECT received_time, subject, line, keyword, first_seen_at FROM keyword_matches ORDER BY first_seen_at DESC, id DESC"
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connection() as conn:
         rows = conn.execute(query).fetchall()
     return [
         {
@@ -374,8 +427,78 @@ def list_keyword_matches(new_only: bool = False) -> list[dict[str, Any]]:
     ]
 
 
+def list_database() -> dict[str, list[dict[str, Any]]]:
+    ensure_db()
+    with db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        settings = [
+            {"key": row["key"], "value": row["value"]}
+            for row in conn.execute("SELECT key, value FROM settings ORDER BY key")
+        ]
+        recipients = [
+            {"name": row["name"], "count": row["count"], "updated_at": row["updated_at"]}
+            for row in conn.execute(
+                "SELECT name, count, updated_at FROM recipients ORDER BY updated_at DESC, count DESC, name"
+            )
+        ]
+        keyword_matches = [
+            {
+                "id": row["id"],
+                "received_time": row["received_time"],
+                "subject": row["subject"],
+                "line": row["line"],
+                "keyword": row["keyword"],
+                "first_seen_at": row["first_seen_at"],
+            }
+            for row in conn.execute(
+                """
+                SELECT id, received_time, subject, line, keyword, first_seen_at
+                FROM keyword_matches
+                ORDER BY received_time DESC, first_seen_at DESC, id DESC
+                """
+            )
+        ]
+        job_runs = [
+            {
+                "job_name": row["job_name"],
+                "last_run_at": row["last_run_at"],
+                "status": row["status"],
+                "message": row["message"],
+            }
+            for row in conn.execute(
+                "SELECT job_name, last_run_at, status, message FROM job_runs ORDER BY last_run_at DESC, job_name"
+            )
+        ]
+    return {
+        "settings": settings,
+        "recipients": recipients,
+        "keyword_matches": keyword_matches,
+        "job_runs": job_runs,
+    }
+
+
+def delete_database_records(table: str, keys: list[str]) -> dict[str, Any]:
+    ensure_db()
+    if table not in {"recipients", "keyword_matches", "job_runs"}:
+        raise ValueError("削除できないテーブルです")
+    if not keys:
+        return {"table": table, "deleted": 0}
+
+    with db_connection() as conn:
+        if table == "recipients":
+            cursor = conn.executemany("DELETE FROM recipients WHERE name = ?", [(key,) for key in keys])
+        elif table == "keyword_matches":
+            ids = [int(key) for key in keys]
+            cursor = conn.executemany("DELETE FROM keyword_matches WHERE id = ?", [(row_id,) for row_id in ids])
+        else:
+            cursor = conn.executemany("DELETE FROM job_runs WHERE job_name = ?", [(key,) for key in keys])
+        conn.commit()
+        deleted = cursor.rowcount if cursor.rowcount != -1 else 0
+    return {"table": table, "deleted": deleted}
+
+
 def record_job_run(job_name: str, status: str, message: str) -> None:
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connection() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO job_runs(job_name, last_run_at, status, message) VALUES(?, ?, ?, ?)",
             (job_name, utc_now(), status, message),
@@ -385,7 +508,7 @@ def record_job_run(job_name: str, status: str, message: str) -> None:
 
 def list_job_runs() -> dict[str, dict[str, str]]:
     ensure_db()
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connection() as conn:
         rows = conn.execute("SELECT job_name, last_run_at, status, message FROM job_runs").fetchall()
     return {
         row[0]: {
@@ -467,6 +590,8 @@ class AppHandler(SimpleHTTPRequestHandler):
         elif parsed.path == "/api/keyword-matches":
             params = parse_qs(parsed.query)
             self.write_json({"matches": list_keyword_matches(params.get("new_only") == ["1"])})
+        elif parsed.path == "/api/database":
+            self.write_json(list_database())
         elif parsed.path.startswith("/api/"):
             self.write_json({"error": "not found"}, status=404)
         else:
@@ -482,6 +607,15 @@ class AppHandler(SimpleHTTPRequestHandler):
             elif parsed.path == "/api/check-keywords":
                 payload = self.read_json()
                 self.write_json(check_keywords(int(payload.get("limit", 500))))
+            elif parsed.path == "/api/seed-dummy-data":
+                self.write_json({"inserted": seed_dummy_data(), "database": list_database()})
+            elif parsed.path == "/api/database/delete":
+                payload = self.read_json()
+                result = delete_database_records(
+                    str(payload.get("table") or ""),
+                    [str(key) for key in payload.get("keys", [])],
+                )
+                self.write_json({"result": result, "database": list_database()})
             else:
                 self.write_json({"error": "not found"}, status=404)
         except Exception as exc:  # noqa: BLE001 - return surfaced app errors to UI

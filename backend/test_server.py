@@ -78,6 +78,84 @@ class BackendServerTest(unittest.TestCase):
             self.assertFalse(matches[0]["is_new"])
             self.assertEqual(new_only_matches, [])
 
+    def test_list_database_orders_latest_rows_first(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "backend" / "data" / "app.sqlite3"
+
+            with patch.object(server, "DB_PATH", db_path):
+                server.ensure_db()
+                with server.db_connection() as conn:
+                    conn.execute(
+                        "INSERT INTO recipients(name, count, updated_at) VALUES(?, ?, ?)",
+                        ("古い宛先", 1, "2026-05-12T00:00:00+00:00"),
+                    )
+                    conn.execute(
+                        "INSERT INTO recipients(name, count, updated_at) VALUES(?, ?, ?)",
+                        ("新しい宛先", 2, "2026-05-14T00:00:00+00:00"),
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO keyword_matches(received_time, subject, line, keyword, first_seen_at)
+                        VALUES(?, ?, ?, ?, ?)
+                        """,
+                        ("2026-05-13T00:00:00+09:00", "職アドからのお知らせ", "古い通知", "棚卸", "2026-05-13T00:00:00+00:00"),
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO keyword_matches(received_time, subject, line, keyword, first_seen_at)
+                        VALUES(?, ?, ?, ?, ?)
+                        """,
+                        ("2026-05-14T00:00:00+09:00", "職アドからのお知らせ", "新しい通知", "棚卸", "2026-05-14T00:00:00+00:00"),
+                    )
+                    conn.commit()
+
+                snapshot = server.list_database()
+
+            self.assertEqual(snapshot["recipients"][0]["name"], "新しい宛先")
+            self.assertEqual(snapshot["keyword_matches"][0]["line"], "新しい通知")
+
+    def test_seed_dummy_data_populates_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            db_path = tmp / "backend" / "data" / "app.sqlite3"
+            public_csv = tmp / "public" / "send_mail-ranking_tabulator.csv"
+            dist_csv = tmp / "dist" / "send_mail-ranking_tabulator.csv"
+            public_csv.parent.mkdir(parents=True)
+            dist_csv.parent.mkdir(parents=True)
+
+            with (
+                patch.object(server, "DB_PATH", db_path),
+                patch.object(server, "PUBLIC_CSV_PATH", public_csv),
+                patch.object(server, "DIST_CSV_PATH", dist_csv),
+            ):
+                inserted = server.seed_dummy_data()
+                snapshot = server.list_database()
+
+            self.assertEqual(inserted["recipients"], 4)
+            self.assertGreaterEqual(len(snapshot["keyword_matches"]), 3)
+            self.assertEqual(snapshot["job_runs"][0]["status"], "success")
+
+    def test_delete_database_records_removes_selected_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "backend" / "data" / "app.sqlite3"
+
+            with patch.object(server, "DB_PATH", db_path):
+                server.ensure_db()
+                server.save_recipients([("削除する宛先", 1), ("残す宛先", 2)])
+                result = server.delete_database_records("recipients", ["削除する宛先"])
+                snapshot = server.list_database()
+
+            self.assertEqual(result["deleted"], 1)
+            self.assertEqual([row["name"] for row in snapshot["recipients"]], ["残す宛先"])
+
+    def test_delete_database_records_rejects_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "backend" / "data" / "app.sqlite3"
+
+            with patch.object(server, "DB_PATH", db_path):
+                with self.assertRaises(ValueError):
+                    server.delete_database_records("settings", ["keywords"])
+
     def test_run_job_safely_skips_when_same_job_is_running(self) -> None:
         job_name = "refresh_addresses"
         calls: list[str] = []
