@@ -38,6 +38,22 @@ class BackendServerTest(unittest.TestCase):
         self.assertEqual(event.location, "東京")
         self.assertTrue(event.all_day)
 
+    def test_parse_event_text_does_not_treat_room_number_as_time(self) -> None:
+        base = datetime(2026, 5, 18, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+
+        event = parse_event_text("明日 第2会議室で定例", base)
+
+        self.assertEqual(event.start.isoformat(timespec="minutes"), "2026-05-19T00:00+09:00")
+        self.assertEqual(event.subject, "第2会議室で定例")
+        self.assertTrue(event.all_day)
+
+    def test_browser_origin_must_match_request_host(self) -> None:
+        self.assertTrue(server.is_allowed_browser_origin(None, "127.0.0.1:8765"))
+        self.assertTrue(server.is_allowed_browser_origin("http://127.0.0.1:8765", "127.0.0.1:8765"))
+        self.assertFalse(server.is_allowed_browser_origin("https://example.com", "127.0.0.1:8765"))
+        self.assertFalse(server.is_allowed_browser_origin("null", "127.0.0.1:8765"))
+        self.assertFalse(server.is_allowed_browser_origin("http://[::1", "127.0.0.1:8765"))
+
     def test_add_schedule_saves_outlook_appointment(self) -> None:
         class FakeAppointment:
             def __init__(self) -> None:
@@ -251,9 +267,18 @@ class BackendServerTest(unittest.TestCase):
 
     def test_delete_database_records_removes_selected_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "backend" / "data" / "app.sqlite3"
+            tmp = Path(tmpdir)
+            db_path = tmp / "backend" / "data" / "app.sqlite3"
+            public_csv = tmp / "public" / "send_mail-ranking_tabulator.csv"
+            dist_csv = tmp / "dist" / "send_mail-ranking_tabulator.csv"
+            public_csv.parent.mkdir(parents=True)
+            dist_csv.parent.mkdir(parents=True)
 
-            with patch.object(server, "DB_PATH", db_path):
+            with (
+                patch.object(server, "DB_PATH", db_path),
+                patch.object(server, "PUBLIC_CSV_PATH", public_csv),
+                patch.object(server, "DIST_CSV_PATH", dist_csv),
+            ):
                 server.ensure_db()
                 server.save_recipients([("削除する宛先", 1), ("残す宛先", 2)])
                 result = server.delete_database_records("recipients", ["削除する宛先"])
@@ -261,6 +286,31 @@ class BackendServerTest(unittest.TestCase):
 
             self.assertEqual(result["deleted"], 1)
             self.assertEqual([row["name"] for row in snapshot["recipients"]], ["残す宛先"])
+
+    def test_delete_recipient_records_updates_csv_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            db_path = tmp / "backend" / "data" / "app.sqlite3"
+            public_csv = tmp / "public" / "send_mail-ranking_tabulator.csv"
+            dist_csv = tmp / "dist" / "send_mail-ranking_tabulator.csv"
+            public_csv.parent.mkdir(parents=True)
+            dist_csv.parent.mkdir(parents=True)
+
+            with (
+                patch.object(server, "DB_PATH", db_path),
+                patch.object(server, "PUBLIC_CSV_PATH", public_csv),
+                patch.object(server, "DIST_CSV_PATH", dist_csv),
+            ):
+                server.ensure_db()
+                server.save_recipients([("削除する宛先", 1), ("残す宛先", 2)])
+                server.write_recipients_csv([("残す宛先", 2), ("削除する宛先", 1)])
+                server.delete_database_records("recipients", ["削除する宛先"])
+
+                public_rows = server.read_recipients_csv(public_csv)
+                dist_rows = server.read_recipients_csv(dist_csv)
+
+            self.assertEqual(public_rows, {"残す宛先": 2})
+            self.assertEqual(dist_rows, {"残す宛先": 2})
 
     def test_delete_database_records_rejects_settings(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

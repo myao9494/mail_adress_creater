@@ -9,19 +9,19 @@ import type { Recipient } from '../types'
  * @returns パースされたRecipient配列（回数の降順でソート済み）
  */
 export function parseCSV(csvText: string): Recipient[] {
-  const lines = csvText.split('\n')
+  const rows = parseCsvRows(csvText.replace(/^\uFEFF/, ''))
   const recipients: Recipient[] = []
 
   // ヘッダー行をスキップして2行目から処理
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (!line) continue // 空行をスキップ
+  for (let i = 1; i < rows.length; i++) {
+    const [nameRaw, countRaw] = rows[i]
+    const name = nameRaw?.trim()
+    const count = parseCount(countRaw)
 
-    const [name, countStr] = line.split(',')
-    if (name && countStr) {
+    if (name && count !== null) {
       recipients.push({
-        name: name.trim(),
-        count: parseInt(countStr.trim(), 10),
+        name,
+        count,
       })
     }
   }
@@ -30,12 +30,72 @@ export function parseCSV(csvText: string): Recipient[] {
   return recipients.sort((a, b) => b.count - a.count)
 }
 
+function parseCount(value: string | undefined): number | null {
+  const trimmed = value?.trim() ?? ''
+  if (!/^\d+$/.test(trimmed)) {
+    return null
+  }
+  return Number.parseInt(trimmed, 10)
+}
+
+function parseCsvRows(csvText: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let inQuotes = false
+
+  const pushField = () => {
+    row.push(field)
+    field = ''
+  }
+
+  const pushRow = () => {
+    if (row.length > 0 || field.length > 0) {
+      pushField()
+      rows.push(row)
+      row = []
+    }
+  }
+
+  for (let index = 0; index < csvText.length; index += 1) {
+    const char = csvText[index]
+
+    if (inQuotes) {
+      if (char === '"' && csvText[index + 1] === '"') {
+        field += '"'
+        index += 1
+      } else if (char === '"') {
+        inQuotes = false
+      } else {
+        field += char
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inQuotes = true
+    } else if (char === ',') {
+      pushField()
+    } else if (char === '\n') {
+      pushRow()
+    } else if (char !== '\r') {
+      field += char
+    }
+  }
+
+  pushRow()
+  return rows
+}
+
 /**
  * public/send_mail-ranking_tabulator.csvを読み込む
  * @returns パースされたRecipient配列
  */
 export async function loadRecipients(): Promise<Recipient[]> {
-  const response = await fetch('/send_mail-ranking_tabulator.csv')
+  const response = await fetch('/send_mail-ranking_tabulator.csv', { cache: 'no-store' })
+  if (!response.ok) {
+    throw new Error(`CSVの読み込みに失敗しました (${response.status})`)
+  }
   const csvText = await response.text()
   return parseCSV(csvText)
 }

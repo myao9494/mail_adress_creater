@@ -144,11 +144,12 @@ def extract_time_range(text: str) -> dict[str, object]:
     working = re.sub(r"([0-2]?\d)時(?!\d)", r"\1:00", working)
 
     pattern = re.compile(
-        r"(?:(午前|午後|夕方|夜|昼)\s*)?([0-2]?\d)(?::([0-5]?\d))?"
+        r"(?<!\d)(?:(午前|午後|夕方|夜|昼)\s*)?([01]?\d|2[0-3])(?::([0-5]?\d))?"
         r"(?:\s*(?:から|より|-|~|〜|～)\s*"
-        r"(?:(午前|午後|夕方|夜|昼)\s*)?([0-2]?\d)(?::([0-5]?\d))?)?"
+        r"(?:(午前|午後|夕方|夜|昼)\s*)?([01]?\d|2[0-3])(?::([0-5]?\d))?)?"
+        r"(?!\d)"
     )
-    match = pattern.search(working)
+    match = next((candidate for candidate in pattern.finditer(working) if looks_like_time(candidate)), None)
     if not match:
         return {"text": text, "start_time": None, "duration_minutes": None}
 
@@ -171,6 +172,10 @@ def extract_time_range(text: str) -> dict[str, object]:
         "start_time": start_time,
         "duration_minutes": duration_minutes,
     }
+
+
+def looks_like_time(match: re.Match[str]) -> bool:
+    return bool(match.group(1) or match.group(3) is not None or match.group(5))
 
 
 def adjust_hour(hour: int, prefix: str | None) -> int:

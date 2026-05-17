@@ -5,8 +5,12 @@
  * - 回数の降順でソートされる
  * - ヘッダー行はスキップされる
  */
-import { describe, it, expect } from 'vitest'
-import { parseCSV } from './csvParser'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+import { loadRecipients, parseCSV } from './csvParser'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('parseCSV', () => {
   it('CSV文字列をパースしてRecipient配列を返す', () => {
@@ -61,5 +65,36 @@ describe('parseCSV', () => {
     const result = parseCSV(csvText)
 
     expect(result).toHaveLength(2)
+  })
+
+  it('カンマを含む引用済みの名前を正しくパースする', () => {
+    const csvText = `名前,回数
+"Smith, John",3
+山田 太郎,120`
+
+    const result = parseCSV(csvText)
+
+    expect(result).toContainEqual({ name: 'Smith, John', count: 3 })
+    expect(result).toContainEqual({ name: '山田 太郎', count: 120 })
+  })
+
+  it('回数が数値ではない行は除外する', () => {
+    const csvText = `名前,回数
+山田 太郎,12abc
+佐藤 一郎,200`
+
+    const result = parseCSV(csvText)
+
+    expect(result).toEqual([{ name: '佐藤 一郎', count: 200 }])
+  })
+
+  it('CSV取得が失敗した場合は例外を返す', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: () => Promise.resolve('not found'),
+    }))
+
+    await expect(loadRecipients()).rejects.toThrow('CSVの読み込みに失敗しました (404)')
   })
 })

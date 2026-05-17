@@ -14,7 +14,6 @@ import sqlite3
 import sys
 import threading
 import time
-import traceback
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -79,6 +78,18 @@ def setup_logging() -> None:
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def is_allowed_browser_origin(origin: str | None, host: str | None) -> bool:
+    if not origin:
+        return True
+    if not host:
+        return False
+    try:
+        parsed = urlparse(origin)
+    except ValueError:
+        return False
+    return parsed.scheme in {"http", "https"} and parsed.netloc.lower() == host.lower()
 
 
 @contextmanager
@@ -324,12 +335,20 @@ def write_recipients_csv(rows: list[tuple[str, int]]) -> None:
 def save_recipients(rows: list[tuple[str, int]]) -> None:
     now = utc_now()
     with db_connection() as conn:
+        conn.execute("DELETE FROM recipients")
         for name, count in rows:
             conn.execute(
                 "INSERT OR REPLACE INTO recipients(name, count, updated_at) VALUES(?, ?, ?)",
                 (name, count, now),
             )
         conn.commit()
+
+
+def list_recipient_rows_for_csv(conn: sqlite3.Connection) -> list[tuple[str, int]]:
+    return [
+        (str(row[0]), int(row[1]))
+        for row in conn.execute("SELECT name, count FROM recipients ORDER BY count DESC, name")
+    ]
 
 
 def outlook_namespace() -> Any:
@@ -679,9 +698,11 @@ def delete_database_records(table: str, keys: list[str]) -> dict[str, Any]:
     if not keys:
         return {"table": table, "deleted": 0}
 
+    recipient_rows: list[tuple[str, int]] | None = None
     with db_connection() as conn:
         if table == "recipients":
             cursor = conn.executemany("DELETE FROM recipients WHERE name = ?", [(key,) for key in keys])
+            recipient_rows = list_recipient_rows_for_csv(conn)
         elif table == "favorites":
             cursor = conn.executemany("DELETE FROM favorites WHERE name = ?", [(key,) for key in keys])
         elif table == "keyword_matches":
@@ -691,6 +712,8 @@ def delete_database_records(table: str, keys: list[str]) -> dict[str, Any]:
             cursor = conn.executemany("DELETE FROM job_runs WHERE job_name = ?", [(key,) for key in keys])
         conn.commit()
         deleted = cursor.rowcount if cursor.rowcount != -1 else 0
+    if recipient_rows is not None:
+        write_recipients_csv(recipient_rows)
     return {"table": table, "deleted": deleted}
 
 
@@ -768,14 +791,29 @@ class AppHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(BASE_DIR / "dist"), **kwargs)
 
     def end_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin")
+        if origin and self.is_allowed_origin():
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         super().end_headers()
 
     def do_OPTIONS(self) -> None:
+        if not self.ensure_allowed_origin():
+            return
         self.send_response(204)
         self.end_headers()
+
+    def is_allowed_origin(self) -> bool:
+        return is_allowed_browser_origin(self.headers.get("Origin"), self.headers.get("Host"))
+
+    def ensure_allowed_origin(self) -> bool:
+        if self.is_allowed_origin():
+            return True
+        LOGGER.warning("Rejected request from disallowed Origin: %s", self.headers.get("Origin"))
+        self.write_json({"error": "forbidden origin"}, status=403)
+        return False
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -799,6 +837,8 @@ class AppHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         LOGGER.info("POST %s", parsed.path)
+        if not self.ensure_allowed_origin():
+            return
         try:
             if parsed.path == "/api/refresh-addresses":
                 payload = self.read_json()
@@ -826,14 +866,13 @@ class AppHandler(SimpleHTTPRequestHandler):
                 self.write_json({"error": "not found"}, status=404)
         except Exception as exc:  # noqa: BLE001 - return surfaced app errors to UI
             LOGGER.exception("POST %s failed", parsed.path)
-            self.write_json(
-                {"error": str(exc), "traceback": traceback.format_exc(limit=4)},
-                status=500,
-            )
+            self.write_json({"error": str(exc)}, status=500)
 
     def do_PUT(self) -> None:
         parsed = urlparse(self.path)
         LOGGER.info("PUT %s", parsed.path)
+        if not self.ensure_allowed_origin():
+            return
         try:
             if parsed.path == "/api/settings":
                 self.write_json(save_settings(self.read_json()))
