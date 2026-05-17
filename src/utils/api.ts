@@ -42,6 +42,16 @@ export type KeywordCheckResult = {
   keywords: string[]
 }
 
+export type ParsedScheduleEvent = {
+  start: string
+  end: string
+  subject: string
+  location: string
+  all_day: boolean
+  duration_minutes: number
+  normalized_text: string
+}
+
 export const DEFAULT_SETTINGS: BackendSettings = {
   keywords: ['棚卸', '棚おろし', 'ユーザID'],
   address_interval_minutes: 43200,
@@ -103,6 +113,23 @@ export async function checkKeywords(): Promise<KeywordCheckResult> {
   return requestJson<KeywordCheckResult>('/api/check-keywords', {
     method: 'POST',
     body: JSON.stringify({ limit: 500 }),
+  })
+}
+
+export async function parseSchedule(text: string): Promise<{ event: ParsedScheduleEvent }> {
+  return requestJson<{ event: ParsedScheduleEvent }>('/api/parse-schedule', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  })
+}
+
+export async function addSchedule(
+  text: string,
+  event?: ParsedScheduleEvent,
+): Promise<{ event: ParsedScheduleEvent; saved: boolean }> {
+  return requestJson<{ event: ParsedScheduleEvent; saved: boolean }>('/api/add-schedule', {
+    method: 'POST',
+    body: JSON.stringify({ text, event }),
   })
 }
 

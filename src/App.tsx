@@ -13,11 +13,13 @@ import { Toast } from './components/Toast'
 import {
   DEFAULT_SETTINGS,
   addFavorite,
+  addSchedule,
   checkKeywords,
   deleteDatabaseRecords,
   loadFavorites,
   loadDatabase,
   loadSettings,
+  parseSchedule,
   refreshAddresses,
   saveFavorites,
   saveSettings,
@@ -26,6 +28,7 @@ import {
   type DatabaseSnapshot,
   type Favorite,
   type KeywordMatch,
+  type ParsedScheduleEvent,
 } from './utils/api'
 import type { Recipient } from './types'
 
@@ -44,6 +47,29 @@ const parseFavoriteAddressText = (text: string) =>
   text.split(/[\n\r;、,]+/).map(address => address.trim()).filter(Boolean)
 
 const normalizeFavoriteName = (name: string) => name.replace(/^★\s*/, '').trim()
+
+const toDateTimeLocalValue = (value: string) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16)
+}
+
+const toIsoFromDateTimeLocal = (value: string) => {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toISOString()
+}
+
+const nextAllDayEnd = (start: string) => {
+  const date = new Date(start)
+  if (Number.isNaN(date.getTime())) {
+    return start
+  }
+  date.setDate(date.getDate() + 1)
+  return date.toISOString()
+}
 
 const expandFavoriteAddresses = (
   name: string,
@@ -75,7 +101,7 @@ function App() {
   const [keywordText, setKeywordText] = useState(formatKeywordText(DEFAULT_SETTINGS.keywords))
   const [newMatches, setNewMatches] = useState<KeywordMatch[]>([])
   const [operationError, setOperationError] = useState<string | null>(null)
-  const [runningAction, setRunningAction] = useState<'addresses' | 'keywords' | 'database' | 'dummy' | null>(null)
+  const [runningAction, setRunningAction] = useState<'addresses' | 'keywords' | 'database' | 'dummy' | 'schedule' | null>(null)
   const [databaseOpen, setDatabaseOpen] = useState(false)
   const [database, setDatabase] = useState<DatabaseSnapshot | null>(null)
   const [databaseTable, setDatabaseTable] = useState<DatabaseTableName>('keyword_matches')
@@ -84,6 +110,8 @@ function App() {
   const [selectedFavoriteName, setSelectedFavoriteName] = useState('')
   const [favoriteNameDraft, setFavoriteNameDraft] = useState('')
   const [favoriteAddressText, setFavoriteAddressText] = useState('')
+  const [scheduleText, setScheduleText] = useState('')
+  const [parsedSchedule, setParsedSchedule] = useState<ParsedScheduleEvent | null>(null)
 
   const searchableRecipients = useMemo<Recipient[]>(() => {
     const favoriteMap = new Map(favorites.map(favorite => [favorite.name, favorite.addresses]))
@@ -198,6 +226,78 @@ function App() {
       setRunningAction(null)
     }
   }, [showToast])
+
+  const handleParseSchedule = useCallback(async () => {
+    const text = scheduleText.trim()
+    if (!text) {
+      setOperationError('予定入力を入力してください')
+      return
+    }
+    setRunningAction('schedule')
+    setOperationError(null)
+    try {
+      const result = await parseSchedule(text)
+      setParsedSchedule(result.event)
+      showToast('予定を解析しました')
+    } catch (err) {
+      setParsedSchedule(null)
+      setOperationError(err instanceof Error ? err.message : '予定の解析に失敗しました')
+    } finally {
+      setRunningAction(null)
+    }
+  }, [scheduleText, showToast])
+
+  const handleUpdateParsedSchedule = useCallback((updates: Partial<ParsedScheduleEvent>) => {
+    setParsedSchedule(prev => {
+      if (!prev) {
+        return prev
+      }
+      const next = { ...prev, ...updates }
+      if (updates.all_day === true) {
+        next.start = toIsoFromDateTimeLocal(`${toDateTimeLocalValue(next.start).slice(0, 10)}T00:00`)
+        next.end = nextAllDayEnd(next.start)
+        next.duration_minutes = 1440
+      } else if (next.all_day && updates.start) {
+        next.start = toIsoFromDateTimeLocal(`${toDateTimeLocalValue(next.start).slice(0, 10)}T00:00`)
+        next.end = nextAllDayEnd(next.start)
+        next.duration_minutes = 1440
+      } else if (updates.start || updates.end) {
+        const startTime = new Date(next.start).getTime()
+        const endTime = new Date(next.end).getTime()
+        if (!Number.isNaN(startTime) && !Number.isNaN(endTime) && endTime > startTime) {
+          next.duration_minutes = Math.max(1, Math.round((endTime - startTime) / 60000))
+        }
+      }
+      return next
+    })
+  }, [])
+
+  const handleAddSchedule = useCallback(async () => {
+    const text = scheduleText.trim()
+    if (!text && !parsedSchedule) {
+      setOperationError('予定入力を入力してください')
+      return
+    }
+    if (!parsedSchedule) {
+      setOperationError('先に予定解析を実行してください')
+      return
+    }
+    if (!parsedSchedule.subject.trim()) {
+      setOperationError('件名を入力してください')
+      return
+    }
+    setRunningAction('schedule')
+    setOperationError(null)
+    try {
+      const result = await addSchedule(text, parsedSchedule)
+      setParsedSchedule(result.event)
+      showToast(`${result.event.subject} をOutlook予定表に追加しました`)
+    } catch (err) {
+      setOperationError(err instanceof Error ? err.message : 'Outlook予定表への追加に失敗しました')
+    } finally {
+      setRunningAction(null)
+    }
+  }, [parsedSchedule, scheduleText, showToast])
 
   const handleSeedDummyData = useCallback(async () => {
     setRunningAction('dummy')
@@ -397,6 +497,8 @@ function App() {
 
   const selectedFavorite = favorites.find(favorite => favorite.name === selectedFavoriteName)
   const draftAddresses = parseFavoriteAddressText(favoriteAddressText)
+  const parsedScheduleStartValue = parsedSchedule ? toDateTimeLocalValue(parsedSchedule.start) : ''
+  const parsedScheduleEndValue = parsedSchedule ? toDateTimeLocalValue(parsedSchedule.end) : ''
 
   return (
     <div className="h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-gray-100 p-2 flex flex-col gap-2">
@@ -508,6 +610,96 @@ function App() {
           </div>
         )}
       </header>
+
+      <section className="shrink-0 grid gap-2 bg-gray-950/55 border border-gray-700/60 rounded-lg p-2 md:grid-cols-[1fr_auto]">
+        <label className="flex flex-col gap-1 text-[11px] text-gray-300">
+          予定を自然文で入力
+          <input
+            type="text"
+            value={scheduleText}
+            onChange={e => {
+              setScheduleText(e.target.value)
+              setParsedSchedule(null)
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                void handleParseSchedule()
+              }
+            }}
+            placeholder="例: 今週の水曜日 15:00から16:30 調整会議"
+            className="px-3 py-2 rounded bg-gray-950/80 border border-gray-700 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500/70"
+          />
+        </label>
+        <div className="flex items-end gap-2">
+          <button
+            type="button"
+            onClick={handleParseSchedule}
+            disabled={runningAction !== null}
+            className="px-3 py-2 rounded bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-wait"
+          >
+            {runningAction === 'schedule' ? '処理中...' : '予定解析'}
+          </button>
+          <button
+            type="button"
+            onClick={handleAddSchedule}
+            disabled={runningAction !== null}
+            className="px-3 py-2 rounded bg-rose-600 text-white text-xs font-medium hover:bg-rose-500 disabled:bg-gray-600 disabled:cursor-wait"
+          >
+            Outlook追加
+          </button>
+        </div>
+        {parsedSchedule && (
+          <div className="md:col-span-2 grid gap-2 rounded border border-indigo-400/30 bg-indigo-400/10 px-3 py-3 text-xs text-indigo-50 md:grid-cols-[1.2fr_180px_180px_1fr_80px]">
+            <label className="flex min-w-0 flex-col gap-1 text-indigo-200">
+              件名
+              <input
+                type="text"
+                value={parsedSchedule.subject}
+                onChange={e => handleUpdateParsedSchedule({ subject: e.target.value })}
+                className="px-2 py-2 rounded bg-gray-950/80 border border-indigo-300/30 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-indigo-200">
+              開始
+              <input
+                type="datetime-local"
+                value={parsedScheduleStartValue}
+                onChange={e => handleUpdateParsedSchedule({ start: toIsoFromDateTimeLocal(e.target.value) })}
+                className="px-2 py-2 rounded bg-gray-950/80 border border-indigo-300/30 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-indigo-200">
+              終了
+              <input
+                type="datetime-local"
+                value={parsedScheduleEndValue}
+                onChange={e => handleUpdateParsedSchedule({ end: toIsoFromDateTimeLocal(e.target.value) })}
+                disabled={parsedSchedule.all_day}
+                className="px-2 py-2 rounded bg-gray-950/80 border border-indigo-300/30 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
+              />
+            </label>
+            <label className="flex min-w-0 flex-col gap-1 text-indigo-200">
+              場所
+              <input
+                type="text"
+                value={parsedSchedule.location}
+                onChange={e => handleUpdateParsedSchedule({ location: e.target.value })}
+                className="px-2 py-2 rounded bg-gray-950/80 border border-indigo-300/30 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+            </label>
+            <label className="flex items-end gap-2 pb-2 text-indigo-100">
+              <input
+                type="checkbox"
+                checked={parsedSchedule.all_day}
+                onChange={e => handleUpdateParsedSchedule({ all_day: e.target.checked })}
+                className="h-4 w-4 accent-indigo-500"
+              />
+              終日
+            </label>
+          </div>
+        )}
+      </section>
 
       {operationError && (
         <div className="shrink-0 bg-red-500/15 border border-red-400/40 rounded-lg px-3 py-2 text-sm text-red-100">

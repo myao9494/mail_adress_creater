@@ -24,6 +24,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+try:
+    from .event_parser import JST, ParsedEvent, parse_event_text
+except ImportError:  # pragma: no cover - direct script execution
+    from event_parser import JST, ParsedEvent, parse_event_text
+
 BASE_DIR = Path(__file__).resolve().parents[1]
 PUBLIC_CSV_PATH = BASE_DIR / "public" / "send_mail-ranking_tabulator.csv"
 DIST_CSV_PATH = BASE_DIR / "dist" / "send_mail-ranking_tabulator.csv"
@@ -328,13 +333,29 @@ def save_recipients(rows: list[tuple[str, int]]) -> None:
 
 
 def outlook_namespace() -> Any:
+    return outlook_application().GetNamespace("MAPI")
+
+
+def outlook_application() -> Any:
     try:
         import win32com.client  # type: ignore[import-not-found]
     except ImportError as exc:
         LOGGER.exception("pywin32 import failed")
         raise RuntimeError("Outlook連携にはWindows環境とpywin32が必要です") from exc
+
     try:
-        return win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
+        return win32com.client.gencache.EnsureDispatch("Outlook.Application")
+    except Exception:
+        LOGGER.warning("EnsureDispatch failed; clearing Outlook gen_py cache and retrying", exc_info=True)
+        clear_outlook_gen_py_cache()
+
+    try:
+        return win32com.client.gencache.EnsureDispatch("Outlook.Application")
+    except Exception:
+        LOGGER.warning("EnsureDispatch retry failed; falling back to Dispatch", exc_info=True)
+
+    try:
+        return win32com.client.Dispatch("Outlook.Application")
     except Exception as exc:  # noqa: BLE001 - pywin32 raises platform-specific COM errors
         LOGGER.exception("Failed to connect to Outlook COM namespace")
         raise RuntimeError(
@@ -342,6 +363,17 @@ def outlook_namespace() -> Any:
             "クラシック版Outlookがインストールされ、同じWindowsユーザーで起動できる状態か確認してください。"
             "新しいOutlookのみの環境ではOutlook.Applicationが登録されないため、この機能は使えません。"
         ) from exc
+
+
+def clear_outlook_gen_py_cache() -> None:
+    temp_dir = Path(os.environ.get("TEMP", "")) / "gen_py"
+    if not temp_dir.exists():
+        return
+    for folder in temp_dir.glob("*/00020905-0000-0000-C000-000000000046*"):
+        if folder.is_dir():
+            import shutil
+
+            shutil.rmtree(folder, ignore_errors=True)
 
 
 @contextmanager
@@ -408,6 +440,77 @@ def refresh_addresses(limit: int = 150) -> dict[str, Any]:
         "zero_count": sum(1 for _, count in merged_rows if count == 0),
         "csv_path": str(PUBLIC_CSV_PATH),
     }
+
+
+def parse_schedule(payload: dict[str, Any]) -> dict[str, Any]:
+    text = str(payload.get("text") or "")
+    parsed = parse_event_text(text)
+    return {"event": parsed.to_dict()}
+
+
+def add_schedule(payload: dict[str, Any]) -> dict[str, Any]:
+    parsed = schedule_event_from_payload(payload)
+    save_outlook_event(parsed)
+    record_job_run("add_schedule", "success", f"{parsed.subject} を追加しました")
+    return {"event": parsed.to_dict(), "saved": True}
+
+
+def schedule_event_from_payload(payload: dict[str, Any]) -> ParsedEvent:
+    event_payload = payload.get("event")
+    if event_payload is None:
+        return parse_event_text(str(payload.get("text") or ""))
+    if not isinstance(event_payload, dict):
+        raise ValueError("event must be an object")
+
+    subject = str(event_payload.get("subject") or "").strip()
+    if not subject:
+        raise ValueError("件名を入力してください")
+
+    start = parse_schedule_datetime(event_payload.get("start"))
+    end = parse_schedule_datetime(event_payload.get("end"))
+    all_day = bool(event_payload.get("all_day", False))
+    if end <= start:
+        raise ValueError("終了日時は開始日時より後にしてください")
+
+    return ParsedEvent(
+        start=start,
+        end=end,
+        subject=subject,
+        location=str(event_payload.get("location") or "").strip(),
+        all_day=all_day,
+        duration_minutes=max(1, int((end - start).total_seconds() // 60)),
+        normalized_text=str(event_payload.get("normalized_text") or payload.get("text") or ""),
+    )
+
+
+def parse_schedule_datetime(value: Any) -> datetime:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("日時を入力してください")
+    text = value.strip()
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError("日時の形式が正しくありません") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=JST)
+    return parsed.astimezone(JST)
+
+
+def save_outlook_event(event: ParsedEvent) -> None:
+    with outlook_com_context():
+        app = outlook_application()
+        appointment = app.CreateItem(1)
+        appointment.Start = event.start.strftime("%Y/%m/%d %H:%M:%S")
+        appointment.Subject = event.subject
+        appointment.Duration = event.duration_minutes
+        appointment.Location = event.location
+        appointment.ReminderSet = True
+        appointment.ReminderMinutesBeforeStart = 5
+        appointment.AllDayEvent = bool(event.all_day)
+        appointment.BusyStatus = 2
+        appointment.Save()
 
 
 def message_received_time(message: Any) -> str:
@@ -703,6 +806,10 @@ class AppHandler(SimpleHTTPRequestHandler):
             elif parsed.path == "/api/check-keywords":
                 payload = self.read_json()
                 self.write_json(check_keywords(int(payload.get("limit", 500))))
+            elif parsed.path == "/api/parse-schedule":
+                self.write_json(parse_schedule(self.read_json()))
+            elif parsed.path == "/api/add-schedule":
+                self.write_json(add_schedule(self.read_json()))
             elif parsed.path == "/api/seed-dummy-data":
                 self.write_json({"inserted": seed_dummy_data(), "database": list_database()})
             elif parsed.path == "/api/favorites/add":
