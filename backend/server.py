@@ -496,6 +496,7 @@ def schedule_event_from_payload(payload: dict[str, Any]) -> ParsedEvent:
         end=end,
         subject=subject,
         location=str(event_payload.get("location") or "").strip(),
+        body=str(event_payload.get("body") or "").strip(),
         all_day=all_day,
         duration_minutes=max(1, int((end - start).total_seconds() // 60)),
         normalized_text=str(event_payload.get("normalized_text") or payload.get("text") or ""),
@@ -525,6 +526,7 @@ def save_outlook_event(event: ParsedEvent) -> None:
         appointment.Subject = event.subject
         appointment.Duration = event.duration_minutes
         appointment.Location = event.location
+        appointment.Body = event.body
         appointment.ReminderSet = True
         appointment.ReminderMinutesBeforeStart = 5
         appointment.AllDayEvent = bool(event.all_day)

@@ -6,7 +6,7 @@
  * - 左右矢印: ペイン間の移動
  * - 上下矢印: ペイン内のアイテム移動
  */
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, type WheelEvent } from 'react'
 import { useRecipients } from './hooks/useRecipients'
 import { RecipientPane } from './components/RecipientPane'
 import { Toast } from './components/Toast'
@@ -68,6 +68,15 @@ const nextAllDayEnd = (start: string) => {
     return start
   }
   date.setDate(date.getDate() + 1)
+  return date.toISOString()
+}
+
+const adjustIsoMinutes = (value: string, deltaMinutes: number) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+  date.setMinutes(date.getMinutes() + deltaMinutes)
   return date.toISOString()
 }
 
@@ -271,6 +280,18 @@ function App() {
       return next
     })
   }, [])
+
+  const handleScheduleTimeWheel = useCallback((
+    event: WheelEvent<HTMLInputElement>,
+    field: 'start' | 'end',
+  ) => {
+    if (!parsedSchedule || (field === 'end' && parsedSchedule.all_day)) {
+      return
+    }
+    event.preventDefault()
+    const deltaMinutes = event.deltaY < 0 ? 5 : -5
+    handleUpdateParsedSchedule({ [field]: adjustIsoMinutes(parsedSchedule[field], deltaMinutes) })
+  }, [handleUpdateParsedSchedule, parsedSchedule])
 
   const handleAddSchedule = useCallback(async () => {
     const text = scheduleText.trim()
@@ -650,7 +671,7 @@ function App() {
           </button>
         </div>
         {parsedSchedule && (
-          <div className="md:col-span-2 grid gap-2 rounded border border-indigo-400/30 bg-indigo-400/10 px-3 py-3 text-xs text-indigo-50 md:grid-cols-[1.2fr_180px_180px_1fr_80px]">
+          <div className="md:col-span-2 grid gap-2 rounded border border-indigo-400/30 bg-indigo-400/10 px-3 py-3 text-xs text-indigo-50 md:grid-cols-[1.2fr_180px_180px_1fr_1fr_80px]">
             <label className="flex min-w-0 flex-col gap-1 text-indigo-200">
               件名
               <input
@@ -665,7 +686,9 @@ function App() {
               <input
                 type="datetime-local"
                 value={parsedScheduleStartValue}
+                step={300}
                 onChange={e => handleUpdateParsedSchedule({ start: toIsoFromDateTimeLocal(e.target.value) })}
+                onWheel={e => handleScheduleTimeWheel(e, 'start')}
                 className="px-2 py-2 rounded bg-gray-950/80 border border-indigo-300/30 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400"
               />
             </label>
@@ -674,7 +697,9 @@ function App() {
               <input
                 type="datetime-local"
                 value={parsedScheduleEndValue}
+                step={300}
                 onChange={e => handleUpdateParsedSchedule({ end: toIsoFromDateTimeLocal(e.target.value) })}
+                onWheel={e => handleScheduleTimeWheel(e, 'end')}
                 disabled={parsedSchedule.all_day}
                 className="px-2 py-2 rounded bg-gray-950/80 border border-indigo-300/30 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
               />
@@ -686,6 +711,15 @@ function App() {
                 value={parsedSchedule.location}
                 onChange={e => handleUpdateParsedSchedule({ location: e.target.value })}
                 className="px-2 py-2 rounded bg-gray-950/80 border border-indigo-300/30 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+            </label>
+            <label className="flex min-w-0 flex-col gap-1 text-indigo-200">
+              本文
+              <textarea
+                value={parsedSchedule.body}
+                onChange={e => handleUpdateParsedSchedule({ body: e.target.value })}
+                rows={1}
+                className="min-h-[38px] resize-y px-2 py-2 rounded bg-gray-950/80 border border-indigo-300/30 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400"
               />
             </label>
             <label className="flex items-end gap-2 pb-2 text-indigo-100">

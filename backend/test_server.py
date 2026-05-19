@@ -27,6 +27,27 @@ class BackendServerTest(unittest.TestCase):
         self.assertEqual(event.subject, "調整会議")
         self.assertFalse(event.all_day)
 
+    def test_parse_event_text_extracts_slash_date_hyphen_time_range(self) -> None:
+        base = datetime(2026, 5, 18, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+
+        event = parse_event_text("5/20 14:00ー15:00 会議", base)
+
+        self.assertEqual(event.start.isoformat(timespec="minutes"), "2026-05-20T14:00+09:00")
+        self.assertEqual(event.end.isoformat(timespec="minutes"), "2026-05-20T15:00+09:00")
+        self.assertEqual(event.duration_minutes, 60)
+        self.assertEqual(event.subject, "会議")
+        self.assertFalse(event.all_day)
+
+    def test_parse_event_text_uses_one_hour_for_start_time_only(self) -> None:
+        base = datetime(2026, 5, 18, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+
+        event = parse_event_text("5/20 14:00 会議", base)
+
+        self.assertEqual(event.start.isoformat(timespec="minutes"), "2026-05-20T14:00+09:00")
+        self.assertEqual(event.end.isoformat(timespec="minutes"), "2026-05-20T15:00+09:00")
+        self.assertEqual(event.duration_minutes, 60)
+        self.assertFalse(event.all_day)
+
     def test_parse_event_text_treats_date_only_input_as_all_day(self) -> None:
         base = datetime(2026, 5, 18, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
 
@@ -113,6 +134,7 @@ class BackendServerTest(unittest.TestCase):
                     "end": "2026-05-21T11:45",
                     "subject": "編集後会議",
                     "location": "第1会議室",
+                    "body": "議題を確認する",
                     "all_day": False,
                     "normalized_text": "今週の水曜日 調整会議",
                 },
@@ -121,6 +143,7 @@ class BackendServerTest(unittest.TestCase):
         self.assertEqual(result["event"]["subject"], "編集後会議")
         self.assertEqual(appointment.Subject, "編集後会議")
         self.assertEqual(appointment.Location, "第1会議室")
+        self.assertEqual(appointment.Body, "議題を確認する")
         self.assertEqual(appointment.Start, "2026/05/21 10:15:00")
         self.assertEqual(appointment.Duration, 90)
 

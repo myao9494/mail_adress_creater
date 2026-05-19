@@ -25,6 +25,7 @@ class ParsedEvent:
     end: datetime
     subject: str
     location: str
+    body: str
     all_day: bool
     duration_minutes: int
     normalized_text: str
@@ -75,6 +76,7 @@ def parse_event_text(text: str, base_time: datetime | None = None) -> ParsedEven
         end=end,
         subject=subject,
         location=location,
+        body="",
         all_day=all_day,
         duration_minutes=max(1, int((end - start).total_seconds() // 60)),
         normalized_text=normalized,
@@ -139,6 +141,7 @@ def resolve_weekday(base: datetime, weekday_char: str, prefix: str) -> datetime:
 
 def extract_time_range(text: str) -> dict[str, object]:
     working = text.replace("正午", "12:00")
+    working = working.translate(str.maketrans({"－": "-", "ー": "-", "−": "-", "–": "-", "—": "-"}))
     working = re.sub(r"([0-2]?\d)時半", r"\1:30", working)
     working = re.sub(r"([0-2]?\d)時([0-5]?\d)分", r"\1:\2", working)
     working = re.sub(r"([0-2]?\d)時(?!\d)", r"\1:00", working)

@@ -47,6 +47,7 @@ export type ParsedScheduleEvent = {
   end: string
   subject: string
   location: string
+  body: string
   all_day: boolean
   duration_minutes: number
   normalized_text: string
