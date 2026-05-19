@@ -319,7 +319,10 @@ def read_recipients_csv(path: Path) -> dict[str, int]:
         for row in reader:
             name = (row.get("名前") or "").strip()
             if name:
-                result[name] = int(row.get("回数") or 0)
+                try:
+                    result[name] = int(row.get("回数") or 0)
+                except ValueError:
+                    LOGGER.warning("Skipped recipient row with invalid count: name=%s count=%s", name, row.get("回数"))
         return result
 
 

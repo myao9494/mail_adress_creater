@@ -189,6 +189,34 @@ class BackendServerTest(unittest.TestCase):
             self.assertEqual(rows["継続アドレス"], 1)
             self.assertEqual(rows["新アドレス"], 2)
 
+    def test_refresh_addresses_skips_invalid_old_csv_count(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            public_csv = tmp / "public" / "send_mail-ranking_tabulator.csv"
+            dist_csv = tmp / "dist" / "send_mail-ranking_tabulator.csv"
+            db_path = tmp / "backend" / "data" / "app.sqlite3"
+            public_csv.parent.mkdir(parents=True)
+            dist_csv.parent.mkdir(parents=True)
+            with public_csv.open("w", encoding="utf-8", newline="") as fp:
+                writer = csv.writer(fp)
+                writer.writerow(["名前", "回数"])
+                writer.writerow(["壊れた旧アドレス", "not-a-number"])
+                writer.writerow(["正常な旧アドレス", "3"])
+
+            with (
+                patch.object(server, "PUBLIC_CSV_PATH", public_csv),
+                patch.object(server, "DIST_CSV_PATH", dist_csv),
+                patch.object(server, "DB_PATH", db_path),
+                patch.object(server, "get_sent_item_recipients", return_value=["新アドレス"]),
+            ):
+                result = server.refresh_addresses()
+
+            rows = server.read_recipients_csv(public_csv)
+            self.assertEqual(result["saved_count"], 2)
+            self.assertNotIn("壊れた旧アドレス", rows)
+            self.assertEqual(rows["正常な旧アドレス"], 0)
+            self.assertEqual(rows["新アドレス"], 1)
+
     def test_list_keyword_matches_does_not_mark_history_as_new(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "backend" / "data" / "app.sqlite3"
