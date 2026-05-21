@@ -388,13 +388,12 @@ def outlook_application() -> Any:
 
 
 def clear_outlook_gen_py_cache() -> None:
-    temp_dir = Path(os.environ.get("TEMP", "")) / "gen_py"
+    temp_dir = Path(os.environ.get("TEMP", "")) / "gen_py/3.12"
     if not temp_dir.exists():
         return
-    for folder in temp_dir.glob("*/00020905-0000-0000-C000-000000000046*"):
+    for folder in temp_dir.glob("*000000000046*"):
         if folder.is_dir():
             import shutil
-
             shutil.rmtree(folder, ignore_errors=True)
 
 
