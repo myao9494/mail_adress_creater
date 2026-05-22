@@ -27,6 +27,196 @@ class BackendServerTest(unittest.TestCase):
         self.assertEqual(event.subject, "調整会議")
         self.assertFalse(event.all_day)
 
+    def test_parse_event_text_extracts_spaces_around_colon(self) -> None:
+        base = datetime(2026, 5, 18, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+
+        event = parse_event_text("2026年 5 月 28 日 (木)  15 : 00 〜 16 : 00 会議 @ aa", base)
+
+        self.assertEqual(event.start.isoformat(timespec="minutes"), "2026-05-28T15:00+09:00")
+        self.assertEqual(event.end.isoformat(timespec="minutes"), "2026-05-28T16:00+09:00")
+        self.assertEqual(event.duration_minutes, 60)
+        self.assertEqual(event.subject, "会議")
+        self.assertEqual(event.location, "aa")
+        self.assertFalse(event.all_day)
+
+    def test_parse_event_text_comprehensive_patterns(self) -> None:
+        base = datetime(2026, 5, 18, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+
+        cases = [
+            {
+                "input": "5 / 28 15:00-16:00 会議",
+                "start": "2026-05-28T15:00+09:00",
+                "end": "2026-05-28T16:00+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "",
+                "all_day": False,
+            },
+            {
+                "input": "2026.5.28 15:00 会議",
+                "start": "2026-05-28T15:00+09:00",
+                "end": "2026-05-28T16:00+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "",
+                "all_day": False,
+            },
+            {
+                "input": "２０２６年５月２８日 １５：００から１６：００ 会議",
+                "start": "2026-05-28T15:00+09:00",
+                "end": "2026-05-28T16:00+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "",
+                "all_day": False,
+            },
+            {
+                "input": "5/28木 15:00 会議",
+                "start": "2026-05-28T15:00+09:00",
+                "end": "2026-05-28T16:00+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "",
+                "all_day": False,
+            },
+            {
+                "input": "来週木曜日 15:00 会議",
+                "start": "2026-05-28T15:00+09:00",
+                "end": "2026-05-28T16:00+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "",
+                "all_day": False,
+            },
+            {
+                "input": "あした 15:00 定例",
+                "start": "2026-05-19T15:00+09:00",
+                "end": "2026-05-19T16:00+09:00",
+                "duration": 60,
+                "subject": "定例",
+                "location": "",
+                "all_day": False,
+            },
+            {
+                "input": "5/28 １５　：　３０ 会議",
+                "start": "2026-05-28T15:30+09:00",
+                "end": "2026-05-28T16:30+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "",
+                "all_day": False,
+            },
+            {
+                "input": "5/28 15時30分 会議",
+                "start": "2026-05-28T15:30+09:00",
+                "end": "2026-05-28T16:30+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "",
+                "all_day": False,
+            },
+            {
+                "input": "5/28 15時半 会議",
+                "start": "2026-05-28T15:30+09:00",
+                "end": "2026-05-28T16:30+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "",
+                "all_day": False,
+            },
+            {
+                "input": "5/28 15 時 30 分 会議",
+                "start": "2026-05-28T15:30+09:00",
+                "end": "2026-05-28T16:30+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "",
+                "all_day": False,
+            },
+            {
+                "input": "5/28 午後 3:00 会議",
+                "start": "2026-05-28T15:00+09:00",
+                "end": "2026-05-28T16:00+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "",
+                "all_day": False,
+            },
+            {
+                "input": "5/28 夕方 5 時 会議",
+                "start": "2026-05-28T17:00+09:00",
+                "end": "2026-05-28T18:00+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "",
+                "all_day": False,
+            },
+            {
+                "input": "5/28 夜 8:30 会議",
+                "start": "2026-05-28T20:30+09:00",
+                "end": "2026-05-28T21:30+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "",
+                "all_day": False,
+            },
+            {
+                "input": "5/28 正午 会議",
+                "start": "2026-05-28T12:00+09:00",
+                "end": "2026-05-28T13:00+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "",
+                "all_day": False,
+            },
+            {
+                "input": "5/28 15:00 会議 @ 会議室A",
+                "start": "2026-05-28T15:00+09:00",
+                "end": "2026-05-28T16:00+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "会議室A",
+                "all_day": False,
+            },
+            {
+                "input": "5/28 15:00 於 会議室B 会議",
+                "start": "2026-05-28T15:00+09:00",
+                "end": "2026-05-28T16:00+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "会議室B",
+                "all_day": False,
+            },
+            {
+                "input": "5/28 15:00 会議 会場： オンライン",
+                "start": "2026-05-28T15:00+09:00",
+                "end": "2026-05-28T16:00+09:00",
+                "duration": 60,
+                "subject": "会議",
+                "location": "オンライン",
+                "all_day": False,
+            },
+            {
+                "input": "5/28 15:00 【定例】進捗確認会議 @ 会議室1",
+                "start": "2026-05-28T15:00+09:00",
+                "end": "2026-05-28T16:00+09:00",
+                "duration": 60,
+                "subject": "【定例】進捗確認会議",
+                "location": "会議室1",
+                "all_day": False,
+            },
+        ]
+
+        for i, c in enumerate(cases):
+            with self.subTest(i=i, text=c["input"]):
+                event = parse_event_text(c["input"], base)
+                self.assertEqual(event.start.isoformat(timespec="minutes"), c["start"])
+                self.assertEqual(event.end.isoformat(timespec="minutes"), c["end"])
+                self.assertEqual(event.duration_minutes, c["duration"])
+                self.assertEqual(event.subject, c["subject"])
+                self.assertEqual(event.location, c["location"])
+                self.assertEqual(event.all_day, c["all_day"])
+
     def test_parse_event_text_extracts_slash_date_hyphen_time_range(self) -> None:
         base = datetime(2026, 5, 18, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
 

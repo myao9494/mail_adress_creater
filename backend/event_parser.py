@@ -102,7 +102,7 @@ def extract_date(text: str, base: datetime) -> tuple[datetime.date, str]:
         value = resolve_weekday(base, match.group(2), match.group(1) or "")
         return value.date(), remove_span(text, match.span())
 
-    match = re.search(r"(?:(20\d{2})[年/\-.])?\s*(1[0-2]|0?[1-9])[月/\-.]\s*(3[01]|[12]\d|0?[1-9])日?", text)
+    match = re.search(r"(?:(20\d{2})\s*[年/\-.])?\s*(1[0-2]|0?[1-9])\s*[月/\-.]\s*(3[01]|[12]\d|0?[1-9])\s*日?\s*(?:[(（]?[月火水木金土日]曜?(?:日)?[)）]?)?", text)
     if match:
         year = int(match.group(1) or base.year)
         month = int(match.group(2))
@@ -142,9 +142,10 @@ def resolve_weekday(base: datetime, weekday_char: str, prefix: str) -> datetime:
 def extract_time_range(text: str) -> dict[str, object]:
     working = text.replace("正午", "12:00")
     working = working.translate(str.maketrans({"－": "-", "ー": "-", "−": "-", "–": "-", "—": "-"}))
-    working = re.sub(r"([0-2]?\d)時半", r"\1:30", working)
-    working = re.sub(r"([0-2]?\d)時([0-5]?\d)分", r"\1:\2", working)
-    working = re.sub(r"([0-2]?\d)時(?!\d)", r"\1:00", working)
+    working = re.sub(r"\s*:\s*", ":", working)
+    working = re.sub(r"([0-2]?\d)\s*時半", r"\1:30", working)
+    working = re.sub(r"([0-2]?\d)\s*時\s*([0-5]?\d)\s*分", r"\1:\2", working)
+    working = re.sub(r"([0-2]?\d)\s*時(?!\d)", r"\1:00", working)
 
     pattern = re.compile(
         r"(?<!\d)(?:(午前|午後|夕方|夜|昼)\s*)?([01]?\d|2[0-3])(?::([0-5]?\d))?"
@@ -190,7 +191,7 @@ def adjust_hour(hour: int, prefix: str | None) -> int:
 def extract_subject_and_location(text: str) -> tuple[str, str]:
     cleaned = re.sub(r"^(から|に|は|の|が|を|へ)\s*", "", text).strip(" ,、。")
     location = ""
-    location_match = re.search(r"(?:場所|会場|於|@)\s*[:：]?\s*([^,、。]+)", cleaned)
+    location_match = re.search(r"(?:場所|会場|於|@)\s*[:：]?\s*([^,、。\s]+)", cleaned)
     if location_match:
         location = location_match.group(1).strip()
         cleaned = (cleaned[: location_match.start()] + cleaned[location_match.end() :]).strip(" ,、。")
