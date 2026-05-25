@@ -653,10 +653,9 @@ class BackendServerTest(unittest.TestCase):
                     conn.commit()
 
                 # unconfirmed_only=True で取得
-                # 現在はlist_keyword_matchesがunconfirmed_only引数を受け取らないため、ここで例外が発生して失敗するはず
                 unconfirmed_matches = server.list_keyword_matches(unconfirmed_only=True)
                 self.assertEqual(len(unconfirmed_matches), 1)
-                self.assertEqual(unconfirmed_matches[0]["line"], "未確認 of code")
+                self.assertEqual(unconfirmed_matches[0]["line"], "未確認の通知です")
 
     def test_confirm_keyword_matches(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -674,9 +673,20 @@ class BackendServerTest(unittest.TestCase):
                     )
                 ])
 
-                # 現在はconfirm_keyword_matches属性がないため、ここで例外が発生して失敗するはず
-                with self.assertRaises(AttributeError):
-                    server.confirm_keyword_matches([1])
+                # IDを取得
+                with server.db_connection() as conn:
+                    row = conn.execute("SELECT id, confirmed FROM keyword_matches").fetchone()
+                    match_id = row[0]
+                    self.assertEqual(row[1], 0) # 初期値は0
+
+                # 確認処理を実行
+                result = server.confirm_keyword_matches([match_id])
+                self.assertEqual(result["updated"], 1)
+
+                # 確認済みになっているか検証
+                with server.db_connection() as conn:
+                    row = conn.execute("SELECT confirmed FROM keyword_matches WHERE id = ?", (match_id,)).fetchone()
+                    self.assertEqual(row[0], 1)
 
 
 if __name__ == "__main__":

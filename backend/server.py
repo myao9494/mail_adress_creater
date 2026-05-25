@@ -50,6 +50,8 @@ class KeywordMatch:
     line: str
     keyword: str
     is_new: bool
+    id: int | None = None
+    confirmed: bool = False
 
 
 def setup_logging() -> None:
@@ -139,10 +141,17 @@ def ensure_db() -> None:
               line TEXT NOT NULL,
               keyword TEXT NOT NULL,
               first_seen_at TEXT NOT NULL,
+              confirmed INTEGER NOT NULL DEFAULT 0,
               UNIQUE(received_time, subject, line, keyword)
             )
             """
         )
+        # カラム移行（confirmed カラムが存在しない場合は追加）
+        cursor = conn.execute("PRAGMA table_info(keyword_matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if columns and "confirmed" not in columns:
+            conn.execute("ALTER TABLE keyword_matches ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0")
+
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS job_runs (
@@ -586,13 +595,30 @@ def persist_keyword_matches(matches: list[KeywordMatch]) -> list[KeywordMatch]:
                 """,
                 (match.received_time, match.subject, match.line, match.keyword, now),
             )
+            is_new = cursor.rowcount == 1
+            if is_new:
+                row_id = cursor.lastrowid
+                confirmed = 0
+            else:
+                row = conn.execute(
+                    """
+                    SELECT id, confirmed FROM keyword_matches
+                    WHERE received_time = ? AND subject = ? AND line = ? AND keyword = ?
+                    """,
+                    (match.received_time, match.subject, match.line, match.keyword),
+                ).fetchone()
+                row_id = row[0] if row else None
+                confirmed = row[1] if row else 0
+
             persisted.append(
                 KeywordMatch(
                     received_time=match.received_time,
                     subject=match.subject,
                     line=match.line,
                     keyword=match.keyword,
-                    is_new=cursor.rowcount == 1,
+                    is_new=is_new,
+                    id=row_id,
+                    confirmed=bool(confirmed),
                 )
             )
         conn.commit()
@@ -614,11 +640,14 @@ def check_keywords(limit: int = 500) -> dict[str, Any]:
     }
 
 
-def list_keyword_matches(new_only: bool = False) -> list[dict[str, Any]]:
+def list_keyword_matches(new_only: bool = False, unconfirmed_only: bool = False) -> list[dict[str, Any]]:
     ensure_db()
     if new_only:
         return []
-    query = "SELECT received_time, subject, line, keyword, first_seen_at FROM keyword_matches ORDER BY first_seen_at DESC, id DESC"
+    query = "SELECT received_time, subject, line, keyword, first_seen_at, id, confirmed FROM keyword_matches"
+    if unconfirmed_only:
+        query += " WHERE confirmed = 0"
+    query += " ORDER BY first_seen_at DESC, id DESC"
     with db_connection() as conn:
         rows = conn.execute(query).fetchall()
     return [
@@ -628,10 +657,23 @@ def list_keyword_matches(new_only: bool = False) -> list[dict[str, Any]]:
             "line": row[2],
             "keyword": row[3],
             "first_seen_at": row[4],
+            "id": row[5],
+            "confirmed": bool(row[6]),
             "is_new": False,
         }
         for row in rows
     ]
+
+
+def confirm_keyword_matches(ids: list[int]) -> dict[str, Any]:
+    ensure_db()
+    if not ids:
+        return {"updated": 0}
+    with db_connection() as conn:
+        cursor = conn.executemany("UPDATE keyword_matches SET confirmed = 1 WHERE id = ?", [(row_id,) for row_id in ids])
+        conn.commit()
+        updated = cursor.rowcount if cursor.rowcount != -1 else 0
+    return {"updated": updated}
 
 
 def list_database() -> dict[str, list[dict[str, Any]]]:
@@ -666,10 +708,11 @@ def list_database() -> dict[str, list[dict[str, Any]]]:
                 "line": row["line"],
                 "keyword": row["keyword"],
                 "first_seen_at": row["first_seen_at"],
+                "confirmed": bool(row["confirmed"]),
             }
             for row in conn.execute(
                 """
-                SELECT id, received_time, subject, line, keyword, first_seen_at
+                SELECT id, received_time, subject, line, keyword, first_seen_at, confirmed
                 FROM keyword_matches
                 ORDER BY received_time DESC, first_seen_at DESC, id DESC
                 """
@@ -830,7 +873,12 @@ class AppHandler(SimpleHTTPRequestHandler):
             self.write_json({"favorites": list_favorites()})
         elif parsed.path == "/api/keyword-matches":
             params = parse_qs(parsed.query)
-            self.write_json({"matches": list_keyword_matches(params.get("new_only") == ["1"])})
+            self.write_json({
+                "matches": list_keyword_matches(
+                    new_only=(params.get("new_only") == ["1"]),
+                    unconfirmed_only=(params.get("unconfirmed") == ["1"])
+                )
+            })
         elif parsed.path == "/api/database":
             self.write_json(list_database())
         elif parsed.path.startswith("/api/"):
@@ -844,7 +892,11 @@ class AppHandler(SimpleHTTPRequestHandler):
         if not self.ensure_allowed_origin():
             return
         try:
-            if parsed.path == "/api/refresh-addresses":
+            if parsed.path == "/api/keyword-matches/confirm":
+                payload = self.read_json()
+                ids = [int(x) for x in payload.get("ids", [])]
+                self.write_json(confirm_keyword_matches(ids))
+            elif parsed.path == "/api/refresh-addresses":
                 payload = self.read_json()
                 self.write_json(refresh_addresses(int(payload.get("limit", 150))))
             elif parsed.path == "/api/check-keywords":
