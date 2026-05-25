@@ -13,6 +13,8 @@ export type KeywordMatch = {
   line: string
   keyword: string
   is_new: boolean
+  id?: number
+  confirmed?: boolean
 }
 
 export type Favorite = {
@@ -32,6 +34,7 @@ export type DatabaseSnapshot = {
     line: string
     keyword: string
     first_seen_at: string
+    confirmed: boolean
   }>
   job_runs: Array<{ job_name: string; last_run_at: string; status: string; message: string }>
 }
@@ -151,5 +154,16 @@ export async function deleteDatabaseRecords(
   return requestJson<{ result: { table: string; deleted: number }; database: DatabaseSnapshot }>('/api/database/delete', {
     method: 'POST',
     body: JSON.stringify({ table, keys }),
+  })
+}
+
+export async function loadUnconfirmedMatches(): Promise<{ matches: KeywordMatch[] }> {
+  return requestJson<{ matches: KeywordMatch[] }>('/api/keyword-matches?unconfirmed=1')
+}
+
+export async function confirmMatches(ids: number[]): Promise<{ updated: number }> {
+  return requestJson<{ updated: number }>('/api/keyword-matches/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
   })
 }

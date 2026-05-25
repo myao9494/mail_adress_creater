@@ -4,6 +4,12 @@
  *
  * キーボードナビゲーション:
  * - 左右矢印: ペイン間の移動
+/**
+ * Outlook宛先作成アプリのメインコンポーネント
+ * 2ペイン構成で宛先(To)とCCを独立して管理する
+ *
+ * キーボードナビゲーション:
+ * - 左右矢印: ペイン間の移動
  * - 上下矢印: ペイン内のアイテム移動
  */
 import { useState, useCallback, useEffect, useMemo, type WheelEvent } from 'react'
@@ -15,10 +21,12 @@ import {
   addFavorite,
   addSchedule,
   checkKeywords,
+  confirmMatches,
   deleteDatabaseRecords,
   loadFavorites,
   loadDatabase,
   loadSettings,
+  loadUnconfirmedMatches,
   parseSchedule,
   refreshAddresses,
   saveFavorites,
@@ -152,6 +160,19 @@ function App() {
       })
       .catch(err => {
         setOperationError(err instanceof Error ? err.message : '設定の読み込みに失敗しました')
+      })
+  }, [])
+
+  // アプリ起動時に未確認の職アド通知を読み込む
+  useEffect(() => {
+    loadUnconfirmedMatches()
+      .then(result => {
+        if (result.matches.length > 0) {
+          setNewMatches(result.matches)
+        }
+      })
+      .catch(() => {
+        // 読み込みエラーは無視（バックエンドが起動していない場合など）
       })
   }, [])
 
@@ -723,42 +744,6 @@ function App() {
               />
             </label>
             <label className="flex items-end gap-2 pb-2 text-indigo-100">
-              <input
-                type="checkbox"
-                checked={parsedSchedule.all_day}
-                onChange={e => handleUpdateParsedSchedule({ all_day: e.target.checked })}
-                className="h-4 w-4 accent-indigo-500"
-              />
-              終日
-            </label>
-          </div>
-        )}
-      </section>
-
-      {operationError && (
-        <div className="shrink-0 bg-red-500/15 border border-red-400/40 rounded-lg px-3 py-2 text-sm text-red-100">
-          エラー: {operationError}
-        </div>
-      )}
-
-      {newMatches.length > 0 && (
-        <section className="shrink-0 bg-amber-300 text-gray-950 border-2 border-amber-100 rounded-lg p-3 shadow-xl">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-bold">新しい職アド通知があります</h2>
-              <p className="text-xs text-gray-800">{newMatches.length}件のキーワード一致を検出しました</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setNewMatches([])}
-              className="px-2 py-1 rounded bg-gray-950 text-white text-xs hover:bg-gray-800"
-            >
-              閉じる
-            </button>
-          </div>
-          <ul className="mt-2 max-h-28 overflow-y-auto text-xs divide-y divide-amber-500/40">
-            {newMatches.map((match, index) => (
-              <li key={`${match.received_time}-${match.keyword}-${index}`} className="py-1">
                 <span className="font-semibold">[{match.keyword}]</span> {match.line}
                 <span className="block text-[10px] text-gray-700">{match.received_time} / {match.subject}</span>
               </li>

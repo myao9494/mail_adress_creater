@@ -2,7 +2,7 @@
  * バックエンドAPIユーティリティのテスト
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { addFavorite, checkKeywords, deleteDatabaseRecords, loadDatabase, loadFavorites, loadSettings, saveFavorites, saveSettings, seedDummyData } from './api'
+import { addFavorite, checkKeywords, deleteDatabaseRecords, loadDatabase, loadFavorites, loadSettings, saveFavorites, saveSettings, seedDummyData, loadUnconfirmedMatches, confirmMatches } from './api'
 
 describe('api utilities', () => {
   afterEach(() => {
@@ -159,4 +159,34 @@ describe('api utilities', () => {
       body: JSON.stringify({ name: '開発チーム', addresses: ['山田 太郎'] }),
     }))
   })
+
+  it('未確認の職アド通知を読み込む', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        matches: [{ received_time: '2026-05-18T10:00:00', subject: '職アドからのお知らせ', line: 'テスト', keyword: '棚卸', is_new: false, id: 1, confirmed: false }],
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(loadUnconfirmedMatches()).resolves.toEqual({
+      matches: [expect.objectContaining({ id: 1, confirmed: false })],
+    })
+    expect(fetchMock).toHaveBeenCalledWith('/api/keyword-matches?unconfirmed=1', expect.any(Object))
+  })
+
+  it('職アド通知を確認済みにする', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ updated: 1 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(confirmMatches([1])).resolves.toEqual({ updated: 1 })
+    expect(fetchMock).toHaveBeenCalledWith('/api/keyword-matches/confirm', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ ids: [1] }),
+    }))
+  })
 })
+
