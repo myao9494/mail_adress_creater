@@ -586,6 +586,99 @@ class BackendServerTest(unittest.TestCase):
 
         self.assertEqual(calls, ["called"])
 
+    def test_ensure_db_adds_confirmed_column(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "backend" / "data" / "app.sqlite3"
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # 古いスキーマ（confirmedなし）でテーブルを作成
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS keyword_matches (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  received_time TEXT NOT NULL,
+                  subject TEXT NOT NULL,
+                  line TEXT NOT NULL,
+                  keyword TEXT NOT NULL,
+                  first_seen_at TEXT NOT NULL,
+                  UNIQUE(received_time, subject, line, keyword)
+                )
+                """
+            )
+            conn.commit()
+            conn.close()
+
+            # ensure_db を呼び出してカラムが追加されるか確認
+            with patch.object(server, "DB_PATH", db_path):
+                server.ensure_db()
+                with server.db_connection() as conn:
+                    # confirmed カラムが存在するかチェック
+                    cursor = conn.execute("PRAGMA table_info(keyword_matches)")
+                    columns = [row[1] for row in cursor.fetchall()]
+                    self.assertIn("confirmed", columns)
+
+    def test_list_keyword_matches_unconfirmed_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "backend" / "data" / "app.sqlite3"
+
+            with patch.object(server, "DB_PATH", db_path):
+                server.ensure_db()
+                # confirmed=0 (未確認) と confirmed=1 (確認済み) のマッチを追加
+                # まず普通に登録 (confirmed=0)
+                server.persist_keyword_matches([
+                    server.KeywordMatch(
+                        received_time="2026-05-18T10:00:00",
+                        subject="職アドからのお知らせ",
+                        line="未確認の通知です",
+                        keyword="棚卸",
+                        is_new=False,
+                    ),
+                    server.KeywordMatch(
+                        received_time="2026-05-18T11:00:00",
+                        subject="職アドからのお知らせ",
+                        line="確認済みの通知です",
+                        keyword="棚卸",
+                        is_new=False,
+                    )
+                ])
+
+                # 2つ目のIDを取得して確認済みに更新する
+                with server.db_connection() as conn:
+                    row = conn.execute("SELECT id FROM keyword_matches WHERE line = '確認済みの通知です'").fetchone()
+                    target_id = row[0]
+                    # 現在はconfirmedカラムがないため、このテストはここで失敗するはず
+                    conn.execute("UPDATE keyword_matches SET confirmed = 1 WHERE id = ?", (target_id,))
+                    conn.commit()
+
+                # unconfirmed_only=True で取得
+                # 現在はlist_keyword_matchesがunconfirmed_only引数を受け取らないため、ここで例外が発生して失敗するはず
+                unconfirmed_matches = server.list_keyword_matches(unconfirmed_only=True)
+                self.assertEqual(len(unconfirmed_matches), 1)
+                self.assertEqual(unconfirmed_matches[0]["line"], "未確認 of code")
+
+    def test_confirm_keyword_matches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "backend" / "data" / "app.sqlite3"
+
+            with patch.object(server, "DB_PATH", db_path):
+                server.ensure_db()
+                server.persist_keyword_matches([
+                    server.KeywordMatch(
+                        received_time="2026-05-18T10:00:00",
+                        subject="職アドからのお知らせ",
+                        line="テスト通知",
+                        keyword="棚卸",
+                        is_new=False,
+                    )
+                ])
+
+                # 現在はconfirm_keyword_matches属性がないため、ここで例外が発生して失敗するはず
+                with self.assertRaises(AttributeError):
+                    server.confirm_keyword_matches([1])
+
 
 if __name__ == "__main__":
     unittest.main()
+
