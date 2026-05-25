@@ -58,7 +58,8 @@ describe('App - 職アド通知確認', () => {
       expect(screen.getByText('新しい職アド通知があります')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('[棚卸] テスト')).toBeInTheDocument()
+    expect(screen.getByText(/棚卸/)).toBeInTheDocument()
+    expect(screen.getByText(/テスト/)).toBeInTheDocument()
 
     // 「確認」ボタン（OKボタン）が存在することを確認
     const confirmButton = screen.getByRole('button', { name: '確認' })

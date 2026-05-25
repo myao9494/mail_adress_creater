@@ -224,6 +224,22 @@ function App() {
     }
   }, [showToast])
 
+  const handleConfirmMatches = useCallback(async () => {
+    const ids = newMatches.map(match => match.id).filter((id): id is number => id !== undefined)
+    if (ids.length === 0) {
+      setNewMatches([])
+      return
+    }
+    setOperationError(null)
+    try {
+      await confirmMatches(ids)
+      setNewMatches([])
+      showToast('職アド通知を確認済みにしました')
+    } catch (err) {
+      setOperationError(err instanceof Error ? err.message : '職アド通知の確認に失敗しました')
+    }
+  }, [newMatches, showToast])
+
   const handleSaveSettings = useCallback(async () => {
     setOperationError(null)
     const nextSettings: BackendSettings = {
@@ -744,6 +760,42 @@ function App() {
               />
             </label>
             <label className="flex items-end gap-2 pb-2 text-indigo-100">
+              <input
+                type="checkbox"
+                checked={parsedSchedule.all_day}
+                onChange={e => handleUpdateParsedSchedule({ all_day: e.target.checked })}
+                className="h-4 w-4 accent-indigo-500"
+              />
+              終日
+            </label>
+          </div>
+        )}
+      </section>
+
+      {operationError && (
+        <div className="shrink-0 bg-red-500/15 border border-red-400/40 rounded-lg px-3 py-2 text-sm text-red-100">
+          エラー: {operationError}
+        </div>
+      )}
+
+      {newMatches.length > 0 && (
+        <section className="shrink-0 bg-amber-300 text-gray-950 border-2 border-amber-100 rounded-lg p-3 shadow-xl">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold">新しい職アド通知があります</h2>
+              <p className="text-xs text-gray-800">{newMatches.length}件のキーワード一致を検出しました</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleConfirmMatches}
+              className="px-2 py-1 rounded bg-gray-950 text-white text-xs hover:bg-gray-800"
+            >
+              確認
+            </button>
+          </div>
+          <ul className="mt-2 max-h-28 overflow-y-auto text-xs divide-y divide-amber-500/40">
+            {newMatches.map((match, index) => (
+              <li key={`${match.received_time}-${match.keyword}-${index}`} className="py-1">
                 <span className="font-semibold">[{match.keyword}]</span> {match.line}
                 <span className="block text-[10px] text-gray-700">{match.received_time} / {match.subject}</span>
               </li>
