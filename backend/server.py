@@ -553,6 +553,19 @@ def message_received_time(message: Any) -> str:
 
 
 def find_keyword_matches(keywords: list[str], limit: int = 500) -> list[KeywordMatch]:
+    # 除外キーワードを示すプレフィックス（半角マイナス、全角マイナス、長音記号、ダッシュ、ハイフンなど）
+    exclude_prefixes = ("-", "－", "ー", "―", "−")
+
+    # 肯定キーワードと除外キーワードに分ける
+    positive_keywords = [
+        k for k in keywords
+        if not (k.startswith(exclude_prefixes) and len(k.strip()) > 1) and k.strip()
+    ]
+    negative_keywords = [
+        k[1:].strip() for k in keywords
+        if k.startswith(exclude_prefixes) and len(k.strip()) > 1
+    ]
+
     with outlook_com_context():
         namespace = outlook_namespace()
         inbox = namespace.GetDefaultFolder(6)
@@ -568,8 +581,13 @@ def find_keyword_matches(keywords: list[str], limit: int = 500) -> list[KeywordM
             body = str(getattr(message, "Body", "") or "")
             received_time = message_received_time(message)
             for line in body.splitlines():
-                matched_keyword = next((keyword for keyword in keywords if keyword in line), None)
+                # 肯定キーワードのいずれかが line に含まれているかチェック
+                matched_keyword = next((keyword for keyword in positive_keywords if keyword in line), None)
                 if matched_keyword:
+                    # 除外キーワードのいずれかが subject または line に含まれている場合は除外
+                    if any(neg in line or neg in subject for neg in negative_keywords):
+                        continue
+
                     matches.append(
                         KeywordMatch(
                             received_time=received_time,

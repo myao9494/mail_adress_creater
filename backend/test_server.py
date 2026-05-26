@@ -688,6 +688,87 @@ class BackendServerTest(unittest.TestCase):
                     row = conn.execute("SELECT confirmed FROM keyword_matches WHERE id = ?", (match_id,)).fetchone()
                     self.assertEqual(row[0], 1)
 
+    def test_find_keyword_matches_exclude_logic(self) -> None:
+        """
+        職アドのキーワード除外機能（マイナスキーワード指定）の判定ロジックをテストする。
+        - 肯定キーワードが本文行に含まれており、かつ件名または該当行に除外キーワードが含まれていない場合にヒットすること。
+        - 件名に除外キーワードが含まれている場合、本文の該当行に肯定キーワードが含まれていても除外されること。
+        - 本文の該当行に除外キーワードが含まれている場合、肯定キーワードが含まれていても除外されること。
+        """
+        class FakeMessage:
+            def __init__(self, subject: str, body: str, received_time: str) -> None:
+                self.Subject = subject
+                self.Body = body
+                self.ReceivedTime = received_time
+
+        class FakeItems:
+            def __init__(self, messages: list[FakeMessage]) -> None:
+                self.messages = messages
+
+            def Sort(self, key: str, descending: bool) -> None:
+                pass
+
+            def __iter__(self):
+                return iter(self.messages)
+
+        class FakeFolder:
+            def __init__(self, items: FakeItems) -> None:
+                self.Items = items
+
+        class FakeNamespace:
+            def __init__(self, folder: FakeFolder) -> None:
+                self.folder = folder
+
+            def GetDefaultFolder(self, index: int) -> FakeFolder:
+                return self.folder
+
+        # モックメッセージの準備
+        msg1 = FakeMessage(
+            subject="職アドからのお知らせ: RPA通知",
+            body="RPAの実行結果を報告します。\nRPAG受付の準備が完了しました。",
+            received_time="2026-05-26T10:00:00+09:00"
+        )
+        msg2 = FakeMessage(
+            subject="職アドからのお知らせ: RPAG受付開始",
+            body="RPAの処理を開始します。",
+            received_time="2026-05-26T11:00:00+09:00"
+        )
+        msg3 = FakeMessage(
+            subject="職アドからのお知らせ: 通常処理",
+            body="RPAの処理が完了しました。\n別の処理も問題ありませんでした。",
+            received_time="2026-05-26T12:00:00+09:00"
+        )
+
+        fake_namespace = FakeNamespace(FakeFolder(FakeItems([msg1, msg2, msg3])))
+
+        with (
+            patch.object(server, "outlook_com_context"),
+            patch.object(server, "outlook_namespace", return_value=fake_namespace),
+            patch.object(server, "message_received_time", side_effect=lambda m: m.ReceivedTime),
+        ):
+            # 1. 半角マイナス "-" での検証
+            matches = server.find_keyword_matches(["RPA", "-RPAG受付"])
+            lines = [m.line for m in matches]
+            self.assertEqual(len(matches), 2)
+            self.assertIn("RPAの実行結果を報告します。", lines)
+            self.assertIn("RPAの処理が完了しました。", lines)
+            self.assertNotIn("RPAG受付の準備が完了しました。", lines)
+            self.assertNotIn("RPAの処理を開始します。", lines)
+
+            # 2. 表記ゆれ（全角マイナス「－」）での検証
+            matches_zen = server.find_keyword_matches(["RPA", "－RPAG受付"])
+            lines_zen = [m.line for m in matches_zen]
+            self.assertEqual(len(matches_zen), 2)
+            self.assertIn("RPAの実行結果を報告します。", lines_zen)
+            self.assertNotIn("RPAG受付の準備が完了しました。", lines_zen)
+
+            # 3. 表記ゆれ（全角ハイフン/長音「ー」）での検証
+            matches_cho = server.find_keyword_matches(["RPA", "ーRPAG受付"])
+            lines_cho = [m.line for m in matches_cho]
+            self.assertEqual(len(matches_cho), 2)
+            self.assertIn("RPAの実行結果を報告します。", lines_cho)
+            self.assertNotIn("RPAG受付の準備が完了しました。", lines_cho)
+
 
 if __name__ == "__main__":
     unittest.main()
