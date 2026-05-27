@@ -537,7 +537,18 @@ def save_outlook_event(event: ParsedEvent) -> None:
         appointment.Subject = event.subject
         appointment.Duration = event.duration_minutes
         appointment.Location = event.location
-        appointment.Body = event.body
+        
+        # 本文にHTMLタグが含まれる場合はHTMLBodyとして保存を試みる
+        body_str = event.body or ""
+        if body_str.strip().startswith("<") or "<html>" in body_str or "<a " in body_str or "</p>" in body_str or "</div>" in body_str:
+            try:
+                appointment.HTMLBody = body_str
+            except Exception:
+                # 例外が発生した場合は安全にプレーンテキスト扱いでフォールバック
+                appointment.Body = body_str
+        else:
+            appointment.Body = body_str
+
         appointment.ReminderSet = True
         appointment.ReminderMinutesBeforeStart = 5
         appointment.AllDayEvent = bool(event.all_day)

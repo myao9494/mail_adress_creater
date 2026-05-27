@@ -16,6 +16,7 @@ import { useState, useCallback, useEffect, useMemo, type WheelEvent } from 'reac
 import { useRecipients } from './hooks/useRecipients'
 import { RecipientPane } from './components/RecipientPane'
 import { Toast } from './components/Toast'
+import { HtmlEditor } from './components/HtmlEditor'
 import {
   DEFAULT_SETTINGS,
   addFavorite,
@@ -752,11 +753,10 @@ function App() {
             </label>
             <label className="flex min-w-0 flex-col gap-1 text-indigo-200">
               本文
-              <textarea
+              <HtmlEditor
                 value={parsedSchedule.body}
-                onChange={e => handleUpdateParsedSchedule({ body: e.target.value })}
-                rows={1}
-                className="min-h-[38px] resize-y px-2 py-2 rounded bg-gray-950/80 border border-indigo-300/30 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                onChange={val => handleUpdateParsedSchedule({ body: val })}
+                className="min-h-[38px] max-h-[120px] overflow-auto px-2 py-2 rounded bg-gray-950/80 border border-indigo-300/30 text-sm text-gray-100 focus:ring-1 focus:ring-indigo-400"
               />
             </label>
             <label className="flex items-end gap-2 pb-2 text-indigo-100">

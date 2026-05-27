@@ -1,0 +1,65 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "https://excalidraw.com",
+  "elements": [
+    {
+      "id": "fe",
+      "type": "rectangle",
+      "x": 100,
+      "y": 100,
+      "width": 200,
+      "height": 80,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "label": "HtmlEditor\n(React - contentEditable)"
+    },
+    {
+      "id": "arrow1",
+      "type": "arrow",
+      "x": 300,
+      "y": 140,
+      "points": [[0, 0], [100, 0]],
+      "strokeColor": "#1e1e1e"
+    },
+    {
+      "id": "be",
+      "type": "rectangle",
+      "x": 400,
+      "y": 100,
+      "width": 200,
+      "height": 80,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#ffec99",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "label": "server.py\n(HTMLBody 判定)"
+    },
+    {
+      "id": "arrow2",
+      "type": "arrow",
+      "x": 500,
+      "y": 180,
+      "points": [[0, 0], [0, 80]],
+      "strokeColor": "#1e1e1e"
+    },
+    {
+      "id": "outlook",
+      "type": "rectangle",
+      "x": 400,
+      "y": 280,
+      "width": 200,
+      "height": 80,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "label": "Outlook\n(HTMLBody / Body)"
+    }
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff"
+  }
+}

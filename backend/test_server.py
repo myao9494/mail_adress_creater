@@ -337,6 +337,92 @@ class BackendServerTest(unittest.TestCase):
         self.assertEqual(appointment.Start, "2026/05/21 10:15:00")
         self.assertEqual(appointment.Duration, 90)
 
+    def test_add_schedule_saves_html_body_when_provided(self) -> None:
+        class FakeAppointment:
+            def __init__(self) -> None:
+                self.HTMLBody = ""
+                self.Body = ""
+
+            def Save(self) -> None:
+                pass
+
+        class FakeOutlook:
+            def __init__(self, appointment: FakeAppointment) -> None:
+                self.appointment = appointment
+
+            def CreateItem(self, item_type: int) -> FakeAppointment:
+                return self.appointment
+
+        appointment = FakeAppointment()
+
+        with (
+            patch.object(server, "outlook_com_context"),
+            patch.object(server, "outlook_application", return_value=FakeOutlook(appointment)),
+            patch.object(server, "record_job_run"),
+        ):
+            # HTMLタグが含まれる本文
+            result = server.add_schedule({
+                "text": "今週の水曜日 調整会議",
+                "event": {
+                    "start": "2026-05-21T10:15",
+                    "end": "2026-05-21T11:45",
+                    "subject": "編集後会議",
+                    "location": "第1会議室",
+                    "body": "<p>議題を確認する <a href='http://example.com'>リンク</a></p>",
+                    "all_day": False,
+                    "normalized_text": "今週の水曜日 調整会議",
+                },
+            })
+
+        self.assertEqual(appointment.HTMLBody, "<p>議題を確認する <a href='http://example.com'>リンク</a></p>")
+        self.assertEqual(appointment.Body, "")  # HTMLBodyが優先されたためBodyは空のまま
+
+    def test_add_schedule_falls_back_to_body_on_html_body_error(self) -> None:
+        class FakeAppointment:
+            def __init__(self) -> None:
+                self.Body = ""
+
+            @property
+            def HTMLBody(self) -> str:
+                return ""
+
+            @HTMLBody.setter
+            def HTMLBody(self, val: str) -> None:
+                # HTMLBodyの設定で例外を発生させる模擬
+                raise AttributeError("HTMLBody is not supported")
+
+            def Save(self) -> None:
+                pass
+
+        class FakeOutlook:
+            def __init__(self, appointment: FakeAppointment) -> None:
+                self.appointment = appointment
+
+            def CreateItem(self, item_type: int) -> FakeAppointment:
+                return self.appointment
+
+        appointment = FakeAppointment()
+
+        with (
+            patch.object(server, "outlook_com_context"),
+            patch.object(server, "outlook_application", return_value=FakeOutlook(appointment)),
+            patch.object(server, "record_job_run"),
+        ):
+            server.add_schedule({
+                "text": "今週の水曜日 調整会議",
+                "event": {
+                    "start": "2026-05-21T10:15",
+                    "end": "2026-05-21T11:45",
+                    "subject": "編集後会議",
+                    "location": "第1会議室",
+                    "body": "<p>フォールバックテスト</p>",
+                    "all_day": False,
+                    "normalized_text": "今週の水曜日 調整会議",
+                },
+            })
+
+        self.assertEqual(appointment.Body, "<p>フォールバックテスト</p>")
+
     def test_outlook_com_context_initializes_and_uninitializes_com(self) -> None:
         calls: list[str] = []
         fake_pythoncom = types.SimpleNamespace(
