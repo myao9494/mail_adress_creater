@@ -1,0 +1,73 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "https://excalidraw.com",
+  "elements": [
+    {
+      "id": "ui_context",
+      "type": "rectangle",
+      "x": 100,
+      "y": 100,
+      "width": 220,
+      "height": 100,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "label": "トップページ右クリック\nカスタムコンテキストメニュー\n・お気に入り一括登録\n・一括適用/展開"
+    },
+    {
+      "id": "arrow1",
+      "type": "arrow",
+      "x": 320,
+      "y": 150,
+      "points": [[0, 0], [80, 0]],
+      "strokeColor": "#1e1e1e"
+    },
+    {
+      "id": "db_favorites",
+      "type": "rectangle",
+      "x": 400,
+      "y": 100,
+      "width": 220,
+      "height": 100,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#ffec99",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "label": "SQLite - favorites テーブル\nname (キー)\naddresses (To用リストJSON)\ncc_addresses (CC用リストJSON)"
+    },
+    {
+      "id": "arrow2",
+      "type": "arrow",
+      "x": 510,
+      "y": 200,
+      "points": [[0, 0], [0, 80]],
+      "strokeColor": "#1e1e1e"
+    },
+    {
+      "id": "modal_edit",
+      "type": "rectangle",
+      "x": 400,
+      "y": 280,
+      "width": 220,
+      "height": 100,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "label": "上下分割編集モーダル\n上段：宛先 (To) 編集エリア\n下段：CC 編集エリア"
+    },
+    {
+      "id": "arrow3",
+      "type": "arrow",
+      "x": 400,
+      "y": 330,
+      "points": [[0, 0], [-200, -130]],
+      "strokeColor": "#1e1e1e"
+    }
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff"
+  }
+}

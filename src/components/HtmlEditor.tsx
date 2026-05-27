@@ -4,16 +4,15 @@
  * contentEditableなdivを用いて、ブラウザ標準のリッチテキスト貼り付け挙動を活かしつつ、
  * 日本語入力(IME)中のカーソル飛びを防ぐために非制御的に状態を同期します。
  **/
-import React, { useRef, useEffect } from 'react'
+import { useRef, useEffect } from 'react'
 
 interface HtmlEditorProps {
   value: string
   onChange: (val: string) => void
   className?: string
-  placeholder?: string
 }
 
-export function HtmlEditor({ value, onChange, className, placeholder }: HtmlEditorProps) {
+export function HtmlEditor({ value, onChange, className }: HtmlEditorProps) {
   const ref = useRef<HTMLDivElement>(null)
 
   // 外部からの更新（予定解析など）があった場合のみ innerHTML を同期する
@@ -37,7 +36,6 @@ export function HtmlEditor({ value, onChange, className, placeholder }: HtmlEdit
       onBlur={handleBlur}
       className={`${className} focus:outline-none`}
       style={{ outline: 'none' }}
-      placeholder={placeholder}
     />
   )
 }

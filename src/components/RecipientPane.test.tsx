@@ -178,6 +178,6 @@ describe('RecipientPane', () => {
     fireEvent.contextMenu(screen.getByText('山田 太郎'))
     fireEvent.click(screen.getByText('お気に入りに追加'))
 
-    expect(onAddFavorite).toHaveBeenCalledWith('山田 太郎')
+    expect(onAddFavorite).toHaveBeenCalledWith('山田 太郎', false)
   })
 })

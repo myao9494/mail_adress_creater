@@ -20,13 +20,14 @@ export type KeywordMatch = {
 export type Favorite = {
   name: string
   addresses: string[]
+  cc_addresses?: string[]
   updated_at?: string
 }
 
 export type DatabaseSnapshot = {
   settings: Array<{ key: string; value: string }>
   recipients: Array<{ name: string; count: number; updated_at: string }>
-  favorites: Array<{ name: string; addresses: string[]; updated_at: string }>
+  favorites: Array<{ name: string; addresses: string[]; cc_addresses: string[]; updated_at: string }>
   keyword_matches: Array<{
     id: number
     received_time: string
@@ -99,10 +100,10 @@ export async function saveFavorites(favorites: Favorite[]): Promise<{ favorites:
   })
 }
 
-export async function addFavorite(name: string, addresses: string[]): Promise<{ favorite: Favorite; favorites: Favorite[] }> {
+export async function addFavorite(name: string, addresses: string[], cc_addresses: string[]): Promise<{ favorite: Favorite; favorites: Favorite[] }> {
   return requestJson<{ favorite: Favorite; favorites: Favorite[] }>('/api/favorites/add', {
     method: 'POST',
-    body: JSON.stringify({ name, addresses }),
+    body: JSON.stringify({ name, addresses, cc_addresses }),
   })
 }
 

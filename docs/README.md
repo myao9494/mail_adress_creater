@@ -10,12 +10,14 @@ Outlookの送信履歴CSVとOutlook連携バックエンドを利用し、宛先
 ```
 backend/
 ├── server.py              # API、静的配信、Outlook連携、SQLite保存
+├── event_parser.py        # 自然文予定解析
 ├── requirements.txt       # Windows向けpywin32依存
 └── test_server.py         # バックエンドテスト
 
 src/
 ├── components/
 │   ├── RecipientPane.tsx  # 宛先/CC選択ペイン
+│   ├── HtmlEditor.tsx     # HTML/リッチテキストエディタ
 │   └── Toast.tsx          # トースト通知
 ├── hooks/
 │   ├── useRecipients.ts   # CSV読み込み・再読み込み
@@ -130,3 +132,11 @@ python -B -m unittest backend.test_server
 - Python 3.12 標準ライブラリ
 - SQLite
 - pywin32（WindowsでOutlook連携を使う場合）
+
+## 設計・仕様ドキュメント
+
+詳細な機能仕様や設計については、以下のドキュメントを参照してください。
+
+- [お気に入りの宛先・CCワンセット管理機能 仕様書](file:///Users/mine/000_work/temp/mail_adress_creater/docs/favorites_spec.md) ([構成図](file:///Users/mine/000_work/temp/mail_adress_creater/docs/favorites.excalidraw))
+- [除外キーワード機能 仕様書](file:///Users/mine/000_work/temp/mail_adress_creater/docs/exclude_keywords_spec.md)
+- [HTML本文予定作成機能 仕様書](file:///Users/mine/000_work/temp/mail_adress_creater/docs/html_body_spec.md) ([動作フロー図](file:///Users/mine/000_work/temp/mail_adress_creater/docs/html_body.excalidraw))

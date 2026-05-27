@@ -16,10 +16,15 @@
  * クリック操作:
  * - チェックボックス以外の名前部分をクリック: その名前をクリップボードにコピー
  */
-import { useState, useCallback, useEffect, useRef, type KeyboardEvent } from 'react'
+import { useState, useCallback, useEffect, useRef, type KeyboardEvent, forwardRef, useImperativeHandle } from 'react'
 import type { CheckableRecipient, Recipient } from '../types'
 import { useSearch } from '../hooks/useSearch'
 import { copyToClipboard } from '../utils/clipboard'
+
+export type RecipientPaneRef = {
+  getCheckedNames: () => string[]
+  setQueryAndChecked: (query: string, checkedNames: string[], favoriteName?: string) => void
+}
 
 type RecipientPaneProps = {
   title: string
@@ -27,7 +32,7 @@ type RecipientPaneProps = {
   recipients: Recipient[]
   onCopySuccess: () => void
   onNameCopy: (name: string) => void
-  onAddFavorite: (name: string) => void
+  onAddFavorite: (name: string, isCc: boolean) => void
   isFocused: boolean
   onFocus: () => void
 }
@@ -38,7 +43,7 @@ type FocusSection = 'search' | 'button' | 'list'
 /**
  * 宛先（To）またはCC用のペイン
  */
-export function RecipientPane({
+export const RecipientPane = forwardRef<RecipientPaneRef, RecipientPaneProps>(({
   title,
   buttonLabel,
   recipients,
@@ -47,8 +52,17 @@ export function RecipientPane({
   onAddFavorite,
   isFocused,
   onFocus,
-}: RecipientPaneProps) {
-  const { query, setQuery, results, unmatchedKeywords, toggleCheck, getCheckedNames, executeSearch } = useSearch(recipients)
+}, ref) => {
+  const { query, setQuery, results, unmatchedKeywords, toggleCheck, getCheckedNames, executeSearch, setQueryAndChecked, appliedFavoriteName, setAppliedFavoriteName } = useSearch(recipients)
+
+  useImperativeHandle(ref, () => ({
+    getCheckedNames,
+    setQueryAndChecked: (q, names, favoriteName) => {
+      setIsInitial(false)
+      setQueryAndChecked(q, names, favoriteName)
+    },
+  }))
+
   const [isInitial, setIsInitial] = useState(true)
   const [fontSize, setFontSize] = useState(11)
   const [focusedSection, setFocusedSection] = useState<FocusSection>('search')
@@ -93,8 +107,10 @@ export function RecipientPane({
   // フォーカス中のアイテムをスクロールして表示
   useEffect(() => {
     if (focusedIndex >= 0 && listRef.current) {
-      const row = listRef.current.querySelector(`li[data-index="${focusedIndex}"]`)
-      row?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      const row = listRef.current.querySelector(`li[data-index="${focusedIndex}"]`) as HTMLElement | null
+      if (row && typeof row.scrollIntoView === 'function') {
+        row.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      }
     }
   }, [focusedIndex])
 
@@ -269,6 +285,21 @@ export function RecipientPane({
         </div>
       </div>
 
+      {appliedFavoriteName && (
+        <div className="flex items-center gap-1.5 px-2 py-1 mb-1 text-[10px] font-medium text-cyan-300 bg-cyan-950/40 rounded border border-cyan-800/40">
+          <span>★ お気に入り「{appliedFavoriteName}」適用中</span>
+          <button
+            type="button"
+            onClick={() => {
+              setAppliedFavoriteName(null)
+            }}
+            className="ml-auto hover:text-cyan-100 hover:bg-cyan-950/80 rounded px-1.5 py-0.5 text-[9px] border border-cyan-800/40 transition-colors cursor-pointer"
+          >
+            解除 ✕
+          </button>
+        </div>
+      )}
+
       {/* 検索ボックス（複数行対応・動的高さ） */}
       <div className="relative mb-1">
         <textarea
@@ -381,7 +412,7 @@ export function RecipientPane({
             type="button"
             className="w-full px-3 py-2 text-left hover:bg-gray-800"
             onClick={() => {
-              onAddFavorite(contextMenu.name)
+              onAddFavorite(contextMenu.name, title.includes('CC'))
               setContextMenu(null)
             }}
           >
@@ -391,4 +422,4 @@ export function RecipientPane({
       )}
     </div>
   )
-}
+})

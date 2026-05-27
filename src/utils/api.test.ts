@@ -118,12 +118,12 @@ describe('api utilities', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({
-        favorites: [{ name: '開発チーム', addresses: ['山田 太郎'], updated_at: '2026-05-14T00:00:00+00:00' }],
+        favorites: [{ name: '開発チーム', addresses: ['山田 太郎'], cc_addresses: ['鈴木 三郎'], updated_at: '2026-05-14T00:00:00+00:00' }],
       }),
     }))
 
     await expect(loadFavorites()).resolves.toEqual({
-      favorites: [expect.objectContaining({ name: '開発チーム', addresses: ['山田 太郎'] })],
+      favorites: [expect.objectContaining({ name: '開発チーム', addresses: ['山田 太郎'], cc_addresses: ['鈴木 三郎'] })],
     })
   })
 
@@ -134,11 +134,11 @@ describe('api utilities', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    await saveFavorites([{ name: '開発チーム', addresses: ['山田 太郎'] }])
+    await saveFavorites([{ name: '開発チーム', addresses: ['山田 太郎'], cc_addresses: ['鈴木 三郎'] }])
 
     expect(fetchMock).toHaveBeenCalledWith('/api/favorites', expect.objectContaining({
       method: 'PUT',
-      body: JSON.stringify({ favorites: [{ name: '開発チーム', addresses: ['山田 太郎'] }] }),
+      body: JSON.stringify({ favorites: [{ name: '開発チーム', addresses: ['山田 太郎'], cc_addresses: ['鈴木 三郎'] }] }),
     }))
   })
 
@@ -146,17 +146,17 @@ describe('api utilities', () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({
-        favorite: { name: '開発チーム', addresses: ['山田 太郎'] },
-        favorites: [{ name: '開発チーム', addresses: ['山田 太郎'] }],
+        favorite: { name: '開発チーム', addresses: ['山田 太郎'], cc_addresses: ['鈴木 三郎'] },
+        favorites: [{ name: '開発チーム', addresses: ['山田 太郎'], cc_addresses: ['鈴木 三郎'] }],
       }),
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    await addFavorite('開発チーム', ['山田 太郎'])
+    await addFavorite('開発チーム', ['山田 太郎'], ['鈴木 三郎'])
 
     expect(fetchMock).toHaveBeenCalledWith('/api/favorites/add', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ name: '開発チーム', addresses: ['山田 太郎'] }),
+      body: JSON.stringify({ name: '開発チーム', addresses: ['山田 太郎'], cc_addresses: ['鈴木 三郎'] }),
     }))
   })
 

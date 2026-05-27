@@ -128,6 +128,7 @@ def ensure_db() -> None:
             CREATE TABLE IF NOT EXISTS favorites (
               name TEXT PRIMARY KEY,
               addresses TEXT NOT NULL,
+              cc_addresses TEXT NOT NULL DEFAULT '[]',
               updated_at TEXT NOT NULL
             )
             """
@@ -151,6 +152,12 @@ def ensure_db() -> None:
         columns = [row[1] for row in cursor.fetchall()]
         if columns and "confirmed" not in columns:
             conn.execute("ALTER TABLE keyword_matches ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0")
+
+        # カラム移行（cc_addresses カラムが存在しない場合は追加）
+        cursor = conn.execute("PRAGMA table_info(favorites)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if columns and "cc_addresses" not in columns:
+            conn.execute("ALTER TABLE favorites ADD COLUMN cc_addresses TEXT NOT NULL DEFAULT '[]'")
 
         conn.execute(
             """
@@ -261,13 +268,14 @@ def list_favorites() -> list[dict[str, Any]]:
     ensure_db()
     with db_connection() as conn:
         rows = conn.execute(
-            "SELECT name, addresses, updated_at FROM favorites ORDER BY updated_at DESC, name"
+            "SELECT name, addresses, cc_addresses, updated_at FROM favorites ORDER BY updated_at DESC, name"
         ).fetchall()
     return [
         {
             "name": row[0],
             "addresses": json.loads(row[1]),
-            "updated_at": row[2],
+            "cc_addresses": json.loads(row[2]),
+            "updated_at": row[3],
         }
         for row in rows
     ]
@@ -279,22 +287,23 @@ def save_favorites(payload: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(favorites, list):
         raise ValueError("favorites must be an array")
 
-    normalized: dict[str, list[str]] = {}
+    normalized: dict[str, tuple[list[str], list[str]]] = {}
     for favorite in favorites:
         if not isinstance(favorite, dict):
             continue
         name = str(favorite.get("name") or "").strip()
         addresses = normalize_favorite_addresses(favorite.get("addresses"))
-        if name and addresses:
-            normalized[name] = addresses
+        cc_addresses = normalize_favorite_addresses(favorite.get("cc_addresses"))
+        if name and (addresses or cc_addresses):
+            normalized[name] = (addresses, cc_addresses)
 
     now = utc_now()
     with db_connection() as conn:
         conn.execute("DELETE FROM favorites")
-        for name, addresses in normalized.items():
+        for name, (addresses, cc_addresses) in normalized.items():
             conn.execute(
-                "INSERT INTO favorites(name, addresses, updated_at) VALUES(?, ?, ?)",
-                (name, json.dumps(addresses, ensure_ascii=False), now),
+                "INSERT INTO favorites(name, addresses, cc_addresses, updated_at) VALUES(?, ?, ?, ?)",
+                (name, json.dumps(addresses, ensure_ascii=False), json.dumps(cc_addresses, ensure_ascii=False), now),
             )
         conn.commit()
     return list_favorites()
@@ -304,16 +313,17 @@ def add_favorite(payload: dict[str, Any]) -> dict[str, Any]:
     ensure_db()
     name = str(payload.get("name") or "").strip()
     addresses = normalize_favorite_addresses(payload.get("addresses"))
+    cc_addresses = normalize_favorite_addresses(payload.get("cc_addresses"))
     if not name:
         raise ValueError("お気に入り名を入力してください")
-    if not addresses:
-        raise ValueError("お気に入りに登録する宛先がありません")
+    if not addresses and not cc_addresses:
+        raise ValueError("お気に入りに登録する宛先またはCCがありません")
 
-    favorite = {"name": name, "addresses": addresses, "updated_at": utc_now()}
+    favorite = {"name": name, "addresses": addresses, "cc_addresses": cc_addresses, "updated_at": utc_now()}
     with db_connection() as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO favorites(name, addresses, updated_at) VALUES(?, ?, ?)",
-            (favorite["name"], json.dumps(favorite["addresses"], ensure_ascii=False), favorite["updated_at"]),
+            "INSERT OR REPLACE INTO favorites(name, addresses, cc_addresses, updated_at) VALUES(?, ?, ?, ?)",
+            (favorite["name"], json.dumps(favorite["addresses"], ensure_ascii=False), json.dumps(favorite["cc_addresses"], ensure_ascii=False), favorite["updated_at"]),
         )
         conn.commit()
     return favorite
@@ -723,10 +733,11 @@ def list_database() -> dict[str, list[dict[str, Any]]]:
             {
                 "name": row["name"],
                 "addresses": json.loads(row["addresses"]),
+                "cc_addresses": json.loads(row["cc_addresses"]),
                 "updated_at": row["updated_at"],
             }
             for row in conn.execute(
-                "SELECT name, addresses, updated_at FROM favorites ORDER BY updated_at DESC, name"
+                "SELECT name, addresses, cc_addresses, updated_at FROM favorites ORDER BY updated_at DESC, name"
             )
         ]
         keyword_matches = [

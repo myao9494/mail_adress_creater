@@ -4,17 +4,11 @@
  *
  * キーボードナビゲーション:
  * - 左右矢印: ペイン間の移動
-/**
- * Outlook宛先作成アプリのメインコンポーネント
- * 2ペイン構成で宛先(To)とCCを独立して管理する
- *
- * キーボードナビゲーション:
- * - 左右矢印: ペイン間の移動
  * - 上下矢印: ペイン内のアイテム移動
  */
-import { useState, useCallback, useEffect, useMemo, type WheelEvent } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef, type WheelEvent } from 'react'
 import { useRecipients } from './hooks/useRecipients'
-import { RecipientPane } from './components/RecipientPane'
+import { RecipientPane, type RecipientPaneRef } from './components/RecipientPane'
 import { Toast } from './components/Toast'
 import { HtmlEditor } from './components/HtmlEditor'
 import {
@@ -127,16 +121,34 @@ function App() {
   const [favorites, setFavorites] = useState<Favorite[]>([])
   const [selectedFavoriteName, setSelectedFavoriteName] = useState('')
   const [favoriteNameDraft, setFavoriteNameDraft] = useState('')
-  const [favoriteAddressText, setFavoriteAddressText] = useState('')
+  const [favoriteToText, setFavoriteToText] = useState('')
+  const [favoriteCcText, setFavoriteCcText] = useState('')
   const [scheduleText, setScheduleText] = useState('')
   const [parsedSchedule, setParsedSchedule] = useState<ParsedScheduleEvent | null>(null)
+  const [globalContextMenu, setGlobalContextMenu] = useState<{ x: number; y: number } | null>(null)
 
-  const searchableRecipients = useMemo<Recipient[]>(() => {
+  const toPaneRef = useRef<RecipientPaneRef>(null)
+  const ccPaneRef = useRef<RecipientPaneRef>(null)
+
+  const searchableToRecipients = useMemo<Recipient[]>(() => {
     const favoriteMap = new Map(favorites.map(favorite => [favorite.name, favorite.addresses]))
     return [
       ...favorites.map(favorite => ({
         name: `★ ${favorite.name}`,
         count: favorite.addresses.length,
+        copyNames: expandFavoriteAddresses(favorite.name, favoriteMap),
+        favorite: true,
+      })),
+      ...recipients,
+    ]
+  }, [favorites, recipients])
+
+  const searchableCcRecipients = useMemo<Recipient[]>(() => {
+    const favoriteMap = new Map(favorites.map(favorite => [favorite.name, favorite.cc_addresses ?? []]))
+    return [
+      ...favorites.map(favorite => ({
+        name: `★ ${favorite.name}`,
+        count: (favorite.cc_addresses ?? []).length,
         copyNames: expandFavoriteAddresses(favorite.name, favoriteMap),
         favorite: true,
       })),
@@ -185,7 +197,8 @@ function App() {
         if (firstFavorite) {
           setSelectedFavoriteName(firstFavorite.name)
           setFavoriteNameDraft(firstFavorite.name)
-          setFavoriteAddressText(formatFavoriteAddressText(firstFavorite.addresses))
+          setFavoriteToText(formatFavoriteAddressText(firstFavorite.addresses))
+          setFavoriteCcText(formatFavoriteAddressText(firstFavorite.cc_addresses ?? []))
         }
       })
       .catch(err => {
@@ -394,7 +407,8 @@ function App() {
         const nextSelected = result.database.favorites.find(favorite => favorite.name === selectedFavoriteName) ?? result.database.favorites[0]
         setSelectedFavoriteName(nextSelected?.name ?? '')
         setFavoriteNameDraft(nextSelected?.name ?? '')
-        setFavoriteAddressText(formatFavoriteAddressText(nextSelected?.addresses ?? []))
+        setFavoriteToText(formatFavoriteAddressText(nextSelected?.addresses ?? []))
+        setFavoriteCcText(formatFavoriteAddressText(nextSelected?.cc_addresses ?? []))
       }
       setSelectedDatabaseKeys([])
       await reload()
@@ -409,7 +423,8 @@ function App() {
   const handleSelectFavorite = useCallback((favorite: Favorite) => {
     setSelectedFavoriteName(favorite.name)
     setFavoriteNameDraft(favorite.name)
-    setFavoriteAddressText(formatFavoriteAddressText(favorite.addresses))
+    setFavoriteToText(formatFavoriteAddressText(favorite.addresses))
+    setFavoriteCcText(formatFavoriteAddressText(favorite.cc_addresses ?? []))
   }, [])
 
   const handleCreateFavorite = useCallback(() => {
@@ -421,42 +436,46 @@ function App() {
     }
     setSelectedFavoriteName('')
     setFavoriteNameDraft(name)
-    setFavoriteAddressText('')
+    setFavoriteToText('')
+    setFavoriteCcText('')
   }, [favorites])
 
   const handleSaveSelectedFavorite = useCallback(async () => {
     setOperationError(null)
     const name = favoriteNameDraft.trim()
-    const addresses = parseFavoriteAddressText(favoriteAddressText)
+    const addresses = parseFavoriteAddressText(favoriteToText)
+    const cc_addresses = parseFavoriteAddressText(favoriteCcText)
     if (!name) {
       setOperationError('お気に入り名を入力してください')
       return
     }
-    if (addresses.length === 0) {
-      setOperationError('お気に入りの内容を入力してください')
+    if (addresses.length === 0 && cc_addresses.length === 0) {
+      setOperationError('お気に入りの内容（宛先またはCC）を入力してください')
       return
     }
     try {
       const nextFavorites = [
         ...favorites.filter(favorite => favorite.name !== selectedFavoriteName && favorite.name !== name),
-        { name, addresses },
+        { name, addresses, cc_addresses },
       ]
       const result = await saveFavorites(nextFavorites)
       setFavorites(result.favorites)
       const savedFavorite = result.favorites.find(favorite => favorite.name === name)
       setSelectedFavoriteName(savedFavorite?.name ?? name)
       setFavoriteNameDraft(savedFavorite?.name ?? name)
-      setFavoriteAddressText(formatFavoriteAddressText(savedFavorite?.addresses ?? addresses))
+      setFavoriteToText(formatFavoriteAddressText(savedFavorite?.addresses ?? addresses))
+      setFavoriteCcText(formatFavoriteAddressText(savedFavorite?.cc_addresses ?? cc_addresses))
       showToast('お気に入りを保存しました')
     } catch (err) {
       setOperationError(err instanceof Error ? err.message : 'お気に入りの保存に失敗しました')
     }
-  }, [favoriteAddressText, favoriteNameDraft, favorites, selectedFavoriteName, showToast])
+  }, [favoriteToText, favoriteCcText, favoriteNameDraft, favorites, selectedFavoriteName, showToast])
 
   const handleDeleteSelectedFavorite = useCallback(async () => {
     if (!selectedFavoriteName) {
       setFavoriteNameDraft('')
-      setFavoriteAddressText('')
+      setFavoriteToText('')
+      setFavoriteCcText('')
       return
     }
     const confirmed = window.confirm(`${selectedFavoriteName} を削除します。よろしいですか？`)
@@ -470,14 +489,15 @@ function App() {
       const nextFavorite = result.favorites[0]
       setSelectedFavoriteName(nextFavorite?.name ?? '')
       setFavoriteNameDraft(nextFavorite?.name ?? '')
-      setFavoriteAddressText(formatFavoriteAddressText(nextFavorite?.addresses ?? []))
+      setFavoriteToText(formatFavoriteAddressText(nextFavorite?.addresses ?? []))
+      setFavoriteCcText(formatFavoriteAddressText(nextFavorite?.cc_addresses ?? []))
       showToast('お気に入りを削除しました')
     } catch (err) {
       setOperationError(err instanceof Error ? err.message : 'お気に入りの削除に失敗しました')
     }
   }, [favorites, selectedFavoriteName, showToast])
 
-  const handleAddFavorite = useCallback(async (recipientName: string) => {
+  const handleAddFavorite = useCallback(async (recipientName: string, isCc: boolean) => {
     const cleanName = recipientName.replace(/^★\s*/, '')
     const favoriteName = window.prompt('お気に入り名', cleanName)
     if (!favoriteName) {
@@ -485,15 +505,73 @@ function App() {
     }
     setOperationError(null)
     try {
-      const result = await addFavorite(favoriteName, [cleanName])
+      const toAddresses = isCc ? [] : [cleanName]
+      const ccAddresses = isCc ? [cleanName] : []
+      const result = await addFavorite(favoriteName, toAddresses, ccAddresses)
       setFavorites(result.favorites)
       setSelectedFavoriteName(result.favorite.name)
       setFavoriteNameDraft(result.favorite.name)
-      setFavoriteAddressText(formatFavoriteAddressText(result.favorite.addresses))
+      setFavoriteToText(formatFavoriteAddressText(result.favorite.addresses))
+      setFavoriteCcText(formatFavoriteAddressText(result.favorite.cc_addresses ?? []))
       showToast(`${result.favorite.name} をお気に入りに追加しました`)
     } catch (err) {
       setOperationError(err instanceof Error ? err.message : 'お気に入り追加に失敗しました')
     }
+  }, [showToast])
+
+  // グローバルコンテキストメニューを閉じる処理
+  useEffect(() => {
+    if (!globalContextMenu) {
+      return
+    }
+    const closeMenu = () => setGlobalContextMenu(null)
+    window.addEventListener('click', closeMenu)
+    window.addEventListener('keydown', closeMenu)
+    return () => {
+      window.removeEventListener('click', closeMenu)
+      window.removeEventListener('keydown', closeMenu)
+    }
+  }, [globalContextMenu])
+
+  // 現在の宛先・CCをお気に入りとして追加保存する
+  const handleSaveCurrentToFavorite = useCallback(async () => {
+    setOperationError(null)
+    const currentTo = toPaneRef.current?.getCheckedNames() || []
+    const currentCc = ccPaneRef.current?.getCheckedNames() || []
+    if (currentTo.length === 0 && currentCc.length === 0) {
+      setOperationError('現在選択されている宛先またはCCがありません')
+      return
+    }
+
+    const favoriteName = window.prompt('新しいお気に入りグループ名を入力してください')
+    if (!favoriteName) {
+      return
+    }
+    const name = favoriteName.trim()
+    if (!name) {
+      return
+    }
+
+    try {
+      const cleanTo = currentTo.map(n => n.replace(/^★\s*/, ''))
+      const cleanCc = currentCc.map(n => n.replace(/^★\s*/, ''))
+      const result = await addFavorite(name, cleanTo, cleanCc)
+      setFavorites(result.favorites)
+      showToast(`現在の宛先とCCを「${result.favorite.name}」として登録しました`)
+    } catch (err) {
+      setOperationError(err instanceof Error ? err.message : 'お気に入り追加に失敗しました')
+    }
+  }, [showToast])
+
+  // お気に入りを宛先・CCペインに適用する
+  const handleApplyFavorite = useCallback((favorite: Favorite) => {
+    if (toPaneRef.current) {
+      toPaneRef.current.setQueryAndChecked('', favorite.addresses, favorite.name)
+    }
+    if (ccPaneRef.current) {
+      ccPaneRef.current.setQueryAndChecked('', favorite.cc_addresses ?? [], favorite.name)
+    }
+    showToast(`お気に入り「${favorite.name}」を適用しました`)
   }, [showToast])
 
   // グローバルキーボードイベント（左右矢印でペイン切替）
@@ -555,12 +633,20 @@ function App() {
   }
 
   const selectedFavorite = favorites.find(favorite => favorite.name === selectedFavoriteName)
-  const draftAddresses = parseFavoriteAddressText(favoriteAddressText)
   const parsedScheduleStartValue = parsedSchedule ? toDateTimeLocalValue(parsedSchedule.start) : ''
   const parsedScheduleEndValue = parsedSchedule ? toDateTimeLocalValue(parsedSchedule.end) : ''
 
   return (
-    <div className="h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-gray-100 p-2 flex flex-col gap-2">
+    <div
+      onContextMenu={(e) => {
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || (e.target as HTMLElement).isContentEditable) {
+          return
+        }
+        e.preventDefault()
+        setGlobalContextMenu({ x: e.clientX, y: e.clientY })
+      }}
+      className="h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-gray-100 p-2 flex flex-col gap-2"
+    >
       {/* 上部メニュー */}
       <header className="shrink-0 bg-gray-950/70 border border-gray-700/60 rounded-lg px-2 py-2 shadow-lg">
         <div className="flex items-center gap-2">
@@ -868,9 +954,10 @@ function App() {
         {/* 宛先（To）ペイン */}
         <div className="flex-1 min-w-0">
           <RecipientPane
+            ref={toPaneRef}
             title="宛先（To）"
             buttonLabel="宛先作成"
-            recipients={searchableRecipients}
+            recipients={searchableToRecipients}
             onAddFavorite={handleAddFavorite}
             onCopySuccess={() => showToast('宛先をコピーしました')}
             onNameCopy={(name) => showToast(`${name} をコピーしました`)}
@@ -882,9 +969,10 @@ function App() {
         {/* CCペイン */}
         <div className="flex-1 min-w-0">
           <RecipientPane
+            ref={ccPaneRef}
             title="CC"
             buttonLabel="CC作成"
-            recipients={searchableRecipients}
+            recipients={searchableCcRecipients}
             onAddFavorite={handleAddFavorite}
             onCopySuccess={() => showToast('CCをコピーしました')}
             onNameCopy={(name) => showToast(`${name} をコピーしました`)}
@@ -980,19 +1068,83 @@ function App() {
                     </button>
                   </div>
                 </div>
-                <div className="border-b border-gray-800 px-3 py-2 text-xs text-gray-400">
-                  {selectedFavorite ? `${selectedFavorite.name} を編集中` : '新しいお気に入りを編集中'} / {draftAddresses.length}宛先
+                <div className="border-b border-gray-800 px-3 py-2 text-xs text-gray-400 shrink-0">
+                  {selectedFavorite ? `${selectedFavorite.name} を編集中` : '新しいお気に入りを編集中'} / To {parseFavoriteAddressText(favoriteToText).length}宛先 / CC {parseFavoriteAddressText(favoriteCcText).length}宛先
                 </div>
-                <textarea
-                  value={favoriteAddressText}
-                  onChange={event => setFavoriteAddressText(event.target.value)}
-                  spellCheck={false}
-                  className="h-[calc(100vh-235px)] min-h-[360px] w-full resize-none bg-transparent p-4 font-mono text-sm leading-7 text-gray-100 outline-none placeholder:text-gray-600"
-                  placeholder={'山田 太郎\n佐藤 一郎\nkeiri@example.com'}
-                />
+                <div className="flex-1 flex flex-col min-h-0 divide-y divide-gray-800">
+                  {/* To エリア */}
+                  <div className="flex-1 flex flex-col min-h-0">
+                    <div className="bg-gray-950/40 px-3 py-1 text-[11px] font-semibold text-gray-400 border-b border-gray-800/50 flex justify-between items-center shrink-0">
+                      <span>宛先（To）のリスト（改行区切り）</span>
+                    </div>
+                    <textarea
+                      value={favoriteToText}
+                      onChange={event => setFavoriteToText(event.target.value)}
+                      spellCheck={false}
+                      className="flex-1 min-h-[120px] w-full resize-none bg-transparent p-3 font-mono text-sm leading-6 text-gray-100 outline-none placeholder:text-gray-600 overflow-y-auto"
+                      placeholder={'山田 太郎\n佐藤 一郎'}
+                    />
+                  </div>
+                  {/* CC エリア */}
+                  <div className="flex-1 flex flex-col min-h-0">
+                    <div className="bg-gray-950/40 px-3 py-1 text-[11px] font-semibold text-gray-400 border-b border-gray-800/50 flex justify-between items-center shrink-0">
+                      <span>CC のリスト（改行区切り）</span>
+                    </div>
+                    <textarea
+                      value={favoriteCcText}
+                      onChange={event => setFavoriteCcText(event.target.value)}
+                      spellCheck={false}
+                      className="flex-1 min-h-[120px] w-full resize-none bg-transparent p-3 font-mono text-sm leading-6 text-gray-100 outline-none placeholder:text-gray-600 overflow-y-auto"
+                      placeholder={'keiri@example.com\n鈴木 二郎'}
+                    />
+                  </div>
+                </div>
               </section>
             </div>
           </section>
+        </div>
+      )}
+
+      {globalContextMenu && (
+        <div
+          className="fixed z-50 min-w-48 rounded-lg border border-gray-700/80 bg-gray-950/95 py-1 text-xs text-gray-100 shadow-2xl backdrop-blur-md"
+          style={{ left: globalContextMenu.x, top: globalContextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="w-full px-4 py-2 text-left hover:bg-gray-800 flex items-center gap-1.5"
+            onClick={() => {
+              void handleSaveCurrentToFavorite()
+              setGlobalContextMenu(null)
+            }}
+          >
+            <span>📁</span> 現在の宛先・CCをお気に入りに追加
+          </button>
+          <div className="border-t border-gray-800 my-1" />
+          <div className="px-4 py-1 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">お気に入りを適用...</div>
+          {favorites.length === 0 ? (
+            <div className="px-4 py-2 text-gray-500 italic">お気に入りがありません</div>
+          ) : (
+            <div className="max-h-48 overflow-y-auto">
+              {favorites.map((fav) => (
+                <button
+                  key={fav.name}
+                  type="button"
+                  className="w-full px-4 py-2 text-left hover:bg-gray-800 pl-6 flex items-center justify-between"
+                  onClick={() => {
+                    handleApplyFavorite(fav)
+                    setGlobalContextMenu(null)
+                  }}
+                >
+                  <span className="truncate">{fav.name}</span>
+                  <span className="text-[10px] text-gray-500 ml-2">
+                    To:{fav.addresses.length} CC:{(fav.cc_addresses ?? []).length}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

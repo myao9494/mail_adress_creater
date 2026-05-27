@@ -560,16 +560,58 @@ class BackendServerTest(unittest.TestCase):
                 server.ensure_db()
                 saved = server.save_favorites({
                     "favorites": [
-                        {"name": "開発チーム", "addresses": ["山田 太郎", "佐藤 一郎"]},
+                        {"name": "開発チーム", "addresses": ["山田 太郎", "佐藤 一郎"], "cc_addresses": ["鈴木 三郎"]},
                     ],
                 })
-                added = server.add_favorite({"name": "経理", "addresses": "keiri@example.com; 山田 花子"})
+                added = server.add_favorite({
+                    "name": "経理",
+                    "addresses": "keiri@example.com; 山田 花子",
+                    "cc_addresses": "cc-keiri@example.com",
+                })
                 favorites = server.list_favorites()
 
             self.assertEqual(saved[0]["name"], "開発チーム")
             self.assertEqual(saved[0]["addresses"], ["山田 太郎", "佐藤 一郎"])
+            self.assertEqual(saved[0]["cc_addresses"], ["鈴木 三郎"])
             self.assertEqual(added["name"], "経理")
+            self.assertEqual(added["addresses"], ["keiri@example.com", "山田 花子"])
+            self.assertEqual(added["cc_addresses"], ["cc-keiri@example.com"])
             self.assertEqual({favorite["name"] for favorite in favorites}, {"開発チーム", "経理"})
+
+    def test_ensure_db_adds_cc_addresses_column(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "backend" / "data" / "app.sqlite3"
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # 古いスキーマ（cc_addressesなし）でfavoritesテーブルを作成
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS favorites (
+                  name TEXT PRIMARY KEY,
+                  addresses TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                )
+                """
+            )
+            # 古いお気に入りデータを1件登録
+            conn.execute(
+                "INSERT INTO favorites(name, addresses, updated_at) VALUES(?, ?, ?)",
+                ("開発チーム", '["山田 太郎"]', "2026-05-18T10:00:00")
+            )
+            conn.commit()
+            conn.close()
+
+            # ensure_db を呼び出してカラムが追加されるか確認
+            with patch.object(server, "DB_PATH", db_path):
+                server.ensure_db()
+                # 既存データが宛先（To）として残り、CCが空で取得できることを確認
+                favorites = server.list_favorites()
+                self.assertEqual(favorites[0]["name"], "開発チーム")
+                self.assertEqual(favorites[0]["addresses"], ["山田 太郎"])
+                self.assertEqual(favorites[0]["cc_addresses"], []) # DEFAULT値の '[]' がパースされて空配列になること
+
 
     def test_seed_dummy_data_populates_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

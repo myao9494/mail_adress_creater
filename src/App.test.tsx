@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import App from './App'
-import { loadUnconfirmedMatches, confirmMatches, parseSchedule, addSchedule } from './utils/api'
+import { loadUnconfirmedMatches, confirmMatches, parseSchedule, addSchedule, loadFavorites, saveFavorites, addFavorite } from './utils/api'
 
 // apiモジュールの関数をモックする
 vi.mock('./utils/api', async (importOriginal) => {
@@ -18,6 +18,8 @@ vi.mock('./utils/api', async (importOriginal) => {
     addSchedule: vi.fn(),
     loadSettings: vi.fn().mockResolvedValue({ keywords: ['棚卸'], address_interval_minutes: 60, keyword_interval_minutes: 60 }),
     loadFavorites: vi.fn().mockResolvedValue({ favorites: [] }),
+    saveFavorites: vi.fn(),
+    addFavorite: vi.fn(),
     loadDatabase: vi.fn().mockResolvedValue({}),
   }
 })
@@ -25,7 +27,11 @@ vi.mock('./utils/api', async (importOriginal) => {
 // hooksのモック
 vi.mock('./hooks/useRecipients', () => ({
   useRecipients: () => ({
-    recipients: [],
+    recipients: [
+      { name: '山田 太郎', count: 100 },
+      { name: '佐藤 一郎', count: 50 },
+      { name: '鈴木 三郎', count: 10 }
+    ],
     loading: false,
     error: null,
     reload: vi.fn().mockResolvedValue(undefined),
@@ -35,6 +41,7 @@ vi.mock('./hooks/useRecipients', () => ({
 describe('App - 職アド通知確認', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    window.HTMLElement.prototype.scrollIntoView = vi.fn()
   })
 
   it('未確認の職アド通知がある場合、確認ボタンを押すことで確認完了となり通知が消える', async () => {
@@ -142,5 +149,149 @@ describe('App - 職アド通知確認', () => {
         })
       )
     })
+  })
+
+  it('お気に入りモーダルでお気に入りの宛先とCCを上下分割で個別に編集・保存できること', async () => {
+    vi.mocked(loadUnconfirmedMatches).mockResolvedValue({ matches: [] })
+    const mockFavorites = [
+      { name: '開発チーム', addresses: ['山田 太郎'], cc_addresses: ['鈴木 三郎'], updated_at: '2026-05-14T00:00:00+00:00' }
+    ]
+    vi.mocked(loadFavorites).mockResolvedValue({ favorites: mockFavorites })
+    vi.mocked(saveFavorites).mockResolvedValue({ favorites: mockFavorites })
+
+    render(<App />)
+
+    // お気に入りボタンをクリックしてモーダルを開く
+    const favoriteButton = await screen.findByRole('button', { name: 'お気に入り' })
+    fireEvent.click(favoriteButton)
+
+    // モーダルが表示され、上下分割テキストエリアが存在することを確認
+    await waitFor(() => {
+      expect(screen.getByText('宛先（To）のリスト（改行区切り）')).toBeInTheDocument()
+      expect(screen.getByText('CC のリスト（改行区切り）')).toBeInTheDocument()
+    })
+
+    // テキストエリアに宛先とCCがそれぞれ正しくセットされていること
+    const toTextarea = screen.getByPlaceholderText(/山田 太郎/)
+    const ccTextarea = screen.getByPlaceholderText(/keiri@example.com/)
+    expect(toTextarea).toHaveValue('山田 太郎')
+    expect(ccTextarea).toHaveValue('鈴木 三郎')
+
+    // 宛先とCCを書き換えて「保存」ボタンをクリック
+    fireEvent.change(toTextarea, { target: { value: '佐藤 一郎' } })
+    fireEvent.change(ccTextarea, { target: { value: '鈴木 二郎' } })
+
+    const saveBtn = screen.getByRole('button', { name: '保存' })
+    fireEvent.click(saveBtn)
+
+    await waitFor(() => {
+      expect(saveFavorites).toHaveBeenCalledWith(expect.arrayContaining([
+        expect.objectContaining({
+          name: '開発チーム',
+          addresses: ['佐藤 一郎'],
+          cc_addresses: ['鈴木 二郎'],
+        })
+      ]))
+    })
+  })
+
+  it('トップページの右クリックメニューから、現在の宛先・CCの選択内容をお気に入り登録でき、またお気に入りを呼び出してセットできること', async () => {
+    vi.mocked(loadUnconfirmedMatches).mockResolvedValue({ matches: [] })
+    const mockFavorites = [
+      { name: '開発チーム', addresses: ['山田 太郎'], cc_addresses: ['鈴木 三郎'], updated_at: '2026-05-14T00:00:00+00:00' },
+      { name: '無関係グループ', addresses: ['佐藤 四郎'], cc_addresses: ['鈴木 五郎'], updated_at: '2026-05-14T00:00:00+00:00' }
+    ]
+    vi.mocked(loadFavorites).mockResolvedValue({ favorites: mockFavorites })
+    
+    // プロンプトをモック
+    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('新しいグループ')
+    vi.mocked(addFavorite).mockResolvedValue({
+      favorite: { name: '新しいグループ', addresses: ['山田 太郎'], cc_addresses: ['鈴木 三郎'] },
+      favorites: [...mockFavorites, { name: '新しいグループ', addresses: ['山田 太郎'], cc_addresses: ['鈴木 三郎'] }]
+    })
+
+    const { container } = render(<App />)
+
+    // ロード完了（お気に入りボタンの表示）を待つ
+    await screen.findByRole('button', { name: 'お気に入り' })
+
+    // Toペインで「開発チーム」を検索
+    const toTextarea = screen.getAllByPlaceholderText('検索キーワードを入力（Enterで実行）')[0]
+    fireEvent.change(toTextarea, { target: { value: '開発チーム' } })
+    fireEvent.keyDown(toTextarea, { key: 'Enter' })
+
+    // 検索結果に「★ 開発チーム」が表示されるのを待つ
+    await screen.findByText('★ 開発チーム')
+
+    // トップページの右クリック（ContextMenu）をシミュレート
+    const mainContainer = container.firstChild as HTMLElement
+    fireEvent.contextMenu(mainContainer)
+
+    // カスタムコンテキストメニューが表示されることを確認
+    const addFavOption = await screen.findByText('現在の宛先・CCをお気に入りに追加')
+    expect(addFavOption).toBeInTheDocument()
+    expect(screen.getByText('お気に入りを適用...')).toBeInTheDocument()
+
+    // 現在の宛先・CCをお気に入りに追加をクリック
+    fireEvent.click(addFavOption)
+
+    // promptが呼ばれ、addFavorite APIが呼び出されることを確認
+    await waitFor(() => {
+      expect(promptSpy).toHaveBeenCalled()
+      expect(addFavorite).toHaveBeenCalledWith('新しいグループ', ['開発チーム'], [])
+    })
+
+    // 登録成功のトースト表示（＝状態更新の完了）を待つ
+    await screen.findByText(/登録しました/)
+
+    // 右クリックメニューからお気に入りを呼び出してセットするテスト
+    fireEvent.contextMenu(mainContainer)
+
+    const applyFavOption = await screen.findByText('お気に入りを適用...')
+    expect(applyFavOption).toBeInTheDocument()
+
+    const buttons = screen.getAllByRole('button')
+    const targetFavOption = buttons.find(b => b.textContent?.includes('開発チーム') && b.textContent?.includes('To:'))
+    expect(targetFavOption).toBeDefined()
+
+    // 開発チームをクリックすると、宛先・CCペインにアドレスがセットされるはず
+    fireEvent.click(targetFavOption!)
+    
+    // メニューが閉じること
+    await waitFor(() => {
+      expect(screen.queryByText('現在の宛先・CCをお気に入りに追加')).not.toBeInTheDocument()
+    })
+
+    // 適用後、検索キーワード（検索窓）が空であることを検証
+    const toTextareaAfter = screen.getAllByPlaceholderText('検索キーワードを入力（Enterで実行）')[0] as HTMLTextAreaElement
+    const ccTextareaAfter = screen.getAllByPlaceholderText('検索キーワードを入力（Enterで実行）')[1] as HTMLTextAreaElement
+    expect(toTextareaAfter.value).toBe('')
+    expect(ccTextareaAfter.value).toBe('')
+
+    // 適用バッジが画面上に表示されていることを検証
+    expect(screen.getAllByText('★ お気に入り「開発チーム」適用中').length).toBe(2)
+
+    // 適用されたアドレスが画面上に存在することを検証
+    // 「開発チーム」お気に入りは addresses: ['山田 太郎'], cc_addresses: ['鈴木 三郎']
+    expect(await screen.findByText('山田 太郎')).toBeInTheDocument()
+    expect(await screen.findByText('鈴木 三郎')).toBeInTheDocument()
+
+    // チェックが入っていない無関係なアドレス（無関係グループのメンバー）が画面上に存在しないことを検証
+    expect(screen.queryByText('佐藤 四郎')).not.toBeInTheDocument()
+    expect(screen.queryByText('鈴木 五郎')).not.toBeInTheDocument()
+
+    // 追加の検索を手動で実行する（例: 「佐藤」を検索して追加）
+    const toTextareaSearch = screen.getAllByPlaceholderText('検索キーワードを入力（Enterで実行）')[0] as HTMLTextAreaElement
+    fireEvent.change(toTextareaSearch, { target: { value: '佐藤' } })
+    fireEvent.keyDown(toTextareaSearch, { key: 'Enter' })
+
+    // 検索後もお気に入りバッジが表示され続けていることを検証
+    expect(screen.getAllByText('★ お気に入り「開発チーム」適用中').length).toBe(2)
+
+    // お気に入りメンバー「山田 太郎」が消えずに表示されたままであることを検証
+    expect(screen.getByText('山田 太郎')).toBeInTheDocument()
+
+    // 新しく検索マッチした「佐藤 一郎」も画面に表示されていることを検証
+    expect(screen.getByText('佐藤 一郎')).toBeInTheDocument()
   })
 })
