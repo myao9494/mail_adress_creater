@@ -548,14 +548,32 @@ def save_outlook_event(event: ParsedEvent) -> None:
         appointment.Duration = event.duration_minutes
         appointment.Location = event.location
         
-        # 本文にHTMLタグが含まれる場合はHTMLBodyとして保存を試みる
+        # 本文にHTMLタグが含まれる場合は一時HTMLファイルを作成し、WordEditor.Range.InsertFileでインポートを試みる
         body_str = event.body or ""
         if body_str.strip().startswith("<") or "<html>" in body_str or "<a " in body_str or "</p>" in body_str or "</div>" in body_str:
+            import tempfile
+            import os
+            
+            temp_filepath = None
             try:
-                appointment.HTMLBody = body_str
+                # UTF-8で一時ファイルを作成
+                with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w", encoding="utf-8") as temp_file:
+                    temp_file.write(body_str)
+                    temp_filepath = temp_file.name
+                
+                # WordEditorを介してファイルを挿入
+                inspector = appointment.GetInspector
+                word_doc = inspector.WordEditor
+                word_doc.Range().InsertFile(temp_filepath)
             except Exception:
-                # 例外が発生した場合は安全にプレーンテキスト扱いでフォールバック
+                LOGGER.warning("Failed to insert HTML via WordEditor; falling back to plain text Body", exc_info=True)
                 appointment.Body = body_str
+            finally:
+                if temp_filepath and os.path.exists(temp_filepath):
+                    try:
+                        os.remove(temp_filepath)
+                    except Exception:
+                        LOGGER.warning("Failed to remove temporary HTML file: %s", temp_filepath)
         else:
             appointment.Body = body_str
 

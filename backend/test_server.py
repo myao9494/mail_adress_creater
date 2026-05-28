@@ -338,13 +338,37 @@ class BackendServerTest(unittest.TestCase):
         self.assertEqual(appointment.Duration, 90)
 
     def test_add_schedule_saves_html_body_when_provided(self) -> None:
+        class FakeRange:
+            def __init__(self) -> None:
+                self.inserted_file = None
+                self.inserted_content = None
+
+            def InsertFile(self, filepath: str) -> None:
+                self.inserted_file = filepath
+                path = Path(filepath)
+                if path.exists():
+                    with path.open("r", encoding="utf-8") as fp:
+                        self.inserted_content = fp.read()
+
+        class FakeWordEditor:
+            def __init__(self) -> None:
+                self._range = FakeRange()
+
+            def Range(self) -> FakeRange:
+                return self._range
+
+        class FakeInspector:
+            def __init__(self) -> None:
+                self.WordEditor = FakeWordEditor()
+
         class FakeAppointment:
             def __init__(self) -> None:
-                self.HTMLBody = ""
                 self.Body = ""
+                self.GetInspector = FakeInspector()
+                self.saved = False
 
             def Save(self) -> None:
-                pass
+                self.saved = True
 
         class FakeOutlook:
             def __init__(self, appointment: FakeAppointment) -> None:
@@ -374,22 +398,19 @@ class BackendServerTest(unittest.TestCase):
                 },
             })
 
-        self.assertEqual(appointment.HTMLBody, "<p>議題を確認する <a href='http://example.com'>リンク</a></p>")
-        self.assertEqual(appointment.Body, "")  # HTMLBodyが優先されたためBodyは空のまま
+        self.assertTrue(result["saved"])
+        self.assertTrue(appointment.saved)
+        # WordEditor.Range().InsertFile が呼ばれ、一時HTMLファイルの内容が退避されていることを確認
+        inserted_content = appointment.GetInspector.WordEditor.Range().inserted_content
+        self.assertIsNotNone(inserted_content)
+        self.assertEqual(inserted_content, "<p>議題を確認する <a href='http://example.com'>リンク</a></p>")
 
     def test_add_schedule_falls_back_to_body_on_html_body_error(self) -> None:
         class FakeAppointment:
             def __init__(self) -> None:
                 self.Body = ""
-
-            @property
-            def HTMLBody(self) -> str:
-                return ""
-
-            @HTMLBody.setter
-            def HTMLBody(self, val: str) -> None:
-                # HTMLBodyの設定で例外を発生させる模擬
-                raise AttributeError("HTMLBody is not supported")
+                # GetInspector呼び出しで例外を発生させてフォールバックをテストする
+                self.GetInspector = None
 
             def Save(self) -> None:
                 pass
@@ -421,6 +442,7 @@ class BackendServerTest(unittest.TestCase):
                 },
             })
 
+        # GetInspectorで例外が発生した（NoneのためAttributeError）ので、Bodyにプレーンテキストとしてフォールバック保存される
         self.assertEqual(appointment.Body, "<p>フォールバックテスト</p>")
 
     def test_outlook_com_context_initializes_and_uninitializes_com(self) -> None:
