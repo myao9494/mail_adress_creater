@@ -389,6 +389,11 @@ def outlook_application() -> Any:
     except Exception:
         LOGGER.warning("EnsureDispatch failed; clearing Outlook gen_py cache and retrying", exc_info=True)
         clear_outlook_gen_py_cache()
+        try:
+            import win32com.client  # type: ignore[import-not-found]
+        except ImportError as exc:
+            LOGGER.exception("pywin32 import failed on retry")
+            raise RuntimeError("Outlook連携にはWindows環境とpywin32が必要です") from exc
 
     try:
         return win32com.client.gencache.EnsureDispatch("Outlook.Application")
@@ -408,12 +413,16 @@ def outlook_application() -> Any:
 
 def clear_outlook_gen_py_cache() -> None:
     temp_dir = Path(os.environ.get("TEMP", "")) / "gen_py/3.12"
-    if not temp_dir.exists():
-        return
-    for folder in temp_dir.glob("*000000000046*"):
-        if folder.is_dir():
-            import shutil
-            shutil.rmtree(folder, ignore_errors=True)
+    if temp_dir.exists():
+        for folder in temp_dir.glob("*000000000046*"):
+            if folder.is_dir():
+                import shutil
+                shutil.rmtree(folder, ignore_errors=True)
+
+    # sys.modules から win32com 関連モジュールをクリアしてメモリ上のキャッシュをパージする
+    to_remove = [name for name in sys.modules if name.startswith("win32com")]
+    for name in to_remove:
+        sys.modules.pop(name, None)
 
 
 @contextmanager

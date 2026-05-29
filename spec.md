@@ -230,6 +230,16 @@ Outlook COMを使えない検証環境向けに、宛先、キーワード一致
 
 ブラウザからのAPIリクエストは同一Originのみ許可する。別OriginからのPOST/PUT/OPTIONSは403で拒否し、別Originに対する`Access-Control-Allow-Origin`は返さない。
 
+### 6.10 Outlook COM連携時のキャッシュ自動パージと復旧
+
+`pywin32` の `EnsureDispatch` は、ディスク上（`%TEMP%/gen_py`）に型情報キャッシュを自動生成しますが、このキャッシュが破損するとエラーが繰り返されます。
+この対策として、`EnsureDispatch` が失敗した際に以下の処理を自動実行します：
+1. **ディスクキャッシュの削除**: `%TEMP%/gen_py/3.12` 配下の該当キャッシュフォルダを削除する。
+2. **メモリキャッシュの削除**: すでに Python プロセス（`sys.modules`）にインポートされている `win32com` 関連のキャッシュモジュールをパージする。
+3. **モジュールの再ロード**: 完全にクリーンな状態で再度 `win32com.client` をインポートし直して `EnsureDispatch` をリトライする。
+
+これにより、一度エラーが発生しても、バックエンドサーバーを再起動することなく安全に自動復旧します。
+
 ## 7. PWA仕様
 
 - `public/manifest.webmanifest`を配信する

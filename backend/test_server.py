@@ -919,6 +919,38 @@ class BackendServerTest(unittest.TestCase):
             self.assertIn("RPAの実行結果を報告します。", lines_cho)
             self.assertNotIn("RPAG受付の準備が完了しました。", lines_cho)
 
+    def test_clear_outlook_gen_py_cache_removes_disk_and_sys_modules(self) -> None:
+        """clear_outlook_gen_py_cache がディスクのキャッシュと sys.modules のメモリキャッシュの両方を消去することを確認する"""
+        import sys
+        import tempfile
+        from pathlib import Path
+
+        # 1. sys.modules のモック登録
+        sys.modules["win32com.dummy_module"] = "dummy"
+        sys.modules["win32com.gen_py.dummy_sub"] = "dummy"
+        
+        # 2. ディスク上のキャッシュディレクトリのシミュレーション
+        with tempfile.TemporaryDirectory() as tmp_temp_dir:
+            temp_path = Path(tmp_temp_dir)
+            gen_py_dir = temp_path / "gen_py" / "3.12"
+            cache_folder = gen_py_dir / "000000000046_dummy"
+            cache_folder.mkdir(parents=True)
+            
+            # ダミーファイルの作成
+            dummy_file = cache_folder / "test.txt"
+            dummy_file.write_text("dummy", encoding="utf-8")
+            
+            # 環境変数 TEMP をモックディレクトリに向ける
+            with patch.dict("os.environ", {"TEMP": str(tmp_temp_dir)}):
+                server.clear_outlook_gen_py_cache()
+                
+            # フォルダが削除されたことを検証
+            self.assertFalse(cache_folder.exists())
+            
+        # 3. sys.modules から削除されたことを検証
+        self.assertNotIn("win32com.dummy_module", sys.modules)
+        self.assertNotIn("win32com.gen_py.dummy_sub", sys.modules)
+
 
 if __name__ == "__main__":
     unittest.main()
