@@ -17,6 +17,7 @@ vi.mock('./utils/api', async (importOriginal) => {
     parseSchedule: vi.fn(),
     addSchedule: vi.fn(),
     loadSettings: vi.fn().mockResolvedValue({ keywords: ['棚卸'], address_interval_minutes: 60, keyword_interval_minutes: 60 }),
+    saveSettings: vi.fn(),
     loadFavorites: vi.fn().mockResolvedValue({ favorites: [] }),
     saveFavorites: vi.fn(),
     addFavorite: vi.fn(),
@@ -294,4 +295,119 @@ describe('App - 職アド通知確認', () => {
     // 新しく検索マッチした「佐藤 一郎」も画面に表示されていることを検証
     expect(screen.getByText('佐藤 一郎')).toBeInTheDocument()
   })
+
+  it('メイン画面にプロフィールのコピーボタン（メール、電話、住所、部署）が表示され、クリックでクリップボードにコピーされトーストが表示されること', async () => {
+    vi.mocked(loadUnconfirmedMatches).mockResolvedValue({ matches: [] })
+    const { loadSettings } = await import('./utils/api')
+    vi.mocked(loadSettings).mockResolvedValue({
+      keywords: ['棚卸'],
+      address_interval_minutes: 60,
+      keyword_interval_minutes: 60,
+      my_email: 'user@example.com',
+      my_phone: '090-0000-0000',
+      my_address: '東京都千代田区',
+      my_dept: '開発部',
+    })
+
+    // clipboardのモック
+    const writeTextMock = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: writeTextMock },
+      writable: true,
+      configurable: true,
+    })
+
+    render(<App />)
+
+    // コピーボタンがそれぞれ存在することを確認
+    const emailBtn = await screen.findByRole('button', { name: 'メール' })
+    const phoneBtn = screen.getByRole('button', { name: '電話' })
+    const addressBtn = screen.getByRole('button', { name: '住所' })
+    const deptBtn = screen.getByRole('button', { name: '部署' })
+
+    expect(emailBtn).toBeInTheDocument()
+    expect(phoneBtn).toBeInTheDocument()
+    expect(addressBtn).toBeInTheDocument()
+    expect(deptBtn).toBeInTheDocument()
+
+    // メールアドレスボタンをクリック
+    fireEvent.click(emailBtn)
+    expect(writeTextMock).toHaveBeenLastCalledWith('user@example.com')
+    await screen.findByText('メールアドレスをコピーしました')
+
+    // 電話番号ボタンをクリック
+    fireEvent.click(phoneBtn)
+    expect(writeTextMock).toHaveBeenLastCalledWith('090-0000-0000')
+    await screen.findByText('電話番号をコピーしました')
+
+    // 住所ボタンをクリック
+    fireEvent.click(addressBtn)
+    expect(writeTextMock).toHaveBeenLastCalledWith('東京都千代田区')
+    await screen.findByText('住所をコピーしました')
+
+    // 部署ボタンをクリック
+    fireEvent.click(deptBtn)
+    expect(writeTextMock).toHaveBeenLastCalledWith('開発部')
+    await screen.findByText('部署をコピーしました')
+  })
+
+  it('設定メニュー（ハンバーガー）を開いた際、プロフィールの入力欄が表示され、値を変更して保存すると保存APIが呼び出されること', async () => {
+    vi.mocked(loadUnconfirmedMatches).mockResolvedValue({ matches: [] })
+    const { loadSettings, saveSettings } = await import('./utils/api')
+    vi.mocked(loadSettings).mockResolvedValue({
+      keywords: ['棚卸'],
+      address_interval_minutes: 60,
+      keyword_interval_minutes: 60,
+      my_email: 'old@example.com',
+      my_phone: '090-1111-1111',
+      my_address: '旧住所',
+      my_dept: '旧部署',
+    })
+    vi.mocked(saveSettings).mockResolvedValue({
+      keywords: ['棚卸'],
+      address_interval_minutes: 60,
+      keyword_interval_minutes: 60,
+      my_email: 'new@example.com',
+      my_phone: '090-2222-2222',
+      my_address: '新住所',
+      my_dept: '新部署',
+    })
+
+    render(<App />)
+
+    // 設定メニュー（ハンバーガー）をクリックして開く
+    const menuBtn = await screen.findByRole('button', { name: '設定メニュー' })
+    fireEvent.click(menuBtn)
+
+    // 入力欄が画面上に表示されるのを待つ
+    const emailInput = screen.getByLabelText('メールアドレス')
+    const phoneInput = screen.getByLabelText('電話番号')
+    const addressInput = screen.getByLabelText('住所')
+    const deptInput = screen.getByLabelText('部署')
+
+    expect(emailInput).toHaveValue('old@example.com')
+    expect(phoneInput).toHaveValue('090-1111-1111')
+    expect(addressInput).toHaveValue('旧住所')
+    expect(deptInput).toHaveValue('旧部署')
+
+    // 値を編集
+    fireEvent.change(emailInput, { target: { value: 'new@example.com' } })
+    fireEvent.change(phoneInput, { target: { value: '090-2222-2222' } })
+    fireEvent.change(addressInput, { target: { value: '新住所' } })
+    fireEvent.change(deptInput, { target: { value: '新部署' } })
+
+    // 保存ボタンをクリック
+    const saveBtn = screen.getByRole('button', { name: '設定保存' })
+    fireEvent.click(saveBtn)
+
+    await waitFor(() => {
+      expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+        my_email: 'new@example.com',
+        my_phone: '090-2222-2222',
+        my_address: '新住所',
+        my_dept: '新部署',
+      }))
+    })
+  })
 })
+

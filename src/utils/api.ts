@@ -5,6 +5,10 @@ export type BackendSettings = {
   keywords: string[]
   address_interval_minutes: number
   keyword_interval_minutes: number
+  my_email?: string
+  my_phone?: string
+  my_address?: string
+  my_dept?: string
 }
 
 export type KeywordMatch = {
@@ -61,6 +65,10 @@ export const DEFAULT_SETTINGS: BackendSettings = {
   keywords: ['棚卸', '棚おろし', 'ユーザID'],
   address_interval_minutes: 43200,
   keyword_interval_minutes: 60,
+  my_email: '',
+  my_phone: '',
+  my_address: '',
+  my_dept: '',
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {

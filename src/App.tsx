@@ -220,6 +220,21 @@ function App() {
     }
   }, [reload, showToast])
 
+  const handleCopyProfile = useCallback((value: string | undefined, label: string) => {
+    const cleanValue = (value ?? '').trim()
+    if (!cleanValue) {
+      showToast(`${label}が未設定です。設定メニューから登録してください`)
+      return
+    }
+    navigator.clipboard.writeText(cleanValue)
+      .then(() => {
+        showToast(`${label}をコピーしました`)
+      })
+      .catch(() => {
+        showToast(`${label}のコピーに失敗しました`)
+      })
+  }, [showToast])
+
   const handleCheckKeywords = useCallback(async () => {
     setRunningAction('keywords')
     setOperationError(null)
@@ -260,6 +275,10 @@ function App() {
       keywords: parseKeywordText(keywordText),
       address_interval_minutes: settings.address_interval_minutes,
       keyword_interval_minutes: settings.keyword_interval_minutes,
+      my_email: settings.my_email,
+      my_phone: settings.my_phone,
+      my_address: settings.my_address,
+      my_dept: settings.my_dept,
     }
     try {
       const savedSettings = await saveSettings(nextSettings)
@@ -269,7 +288,7 @@ function App() {
     } catch (err) {
       setOperationError(err instanceof Error ? err.message : '設定の保存に失敗しました')
     }
-  }, [keywordText, settings.address_interval_minutes, settings.keyword_interval_minutes, showToast])
+  }, [keywordText, settings.address_interval_minutes, settings.keyword_interval_minutes, settings.my_email, settings.my_phone, settings.my_address, settings.my_dept, showToast])
 
   const handleLoadDatabase = useCallback(async () => {
     setRunningAction('database')
@@ -698,59 +717,136 @@ function App() {
           >
             お気に入り
           </button>
+          <div className="flex gap-1 border-l border-gray-700 pl-2">
+            <button
+              type="button"
+              onClick={() => handleCopyProfile(settings.my_email, 'メールアドレス')}
+              className="px-2.5 py-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-[10px] text-gray-200 transition-colors font-medium"
+            >
+              メール
+            </button>
+            <button
+              type="button"
+              onClick={() => handleCopyProfile(settings.my_phone, '電話番号')}
+              className="px-2.5 py-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-[10px] text-gray-200 transition-colors font-medium"
+            >
+              電話
+            </button>
+            <button
+              type="button"
+              onClick={() => handleCopyProfile(settings.my_address, '住所')}
+              className="px-2.5 py-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-[10px] text-gray-200 transition-colors font-medium"
+            >
+              住所
+            </button>
+            <button
+              type="button"
+              onClick={() => handleCopyProfile(settings.my_dept, '部署')}
+              className="px-2.5 py-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-[10px] text-gray-200 transition-colors font-medium"
+            >
+              部署
+            </button>
+          </div>
         </div>
         {menuOpen && (
-          <div className="mt-2 grid gap-2 md:grid-cols-[1fr_220px_220px_auto_auto] bg-gray-900/80 border border-gray-700/60 rounded p-2">
-            <label className="flex flex-col gap-1 text-[11px] text-gray-300">
-              キーワード
-              <input
-                type="text"
-                value={keywordText}
-                onChange={e => setKeywordText(e.target.value)}
-                placeholder="棚卸,棚おろし,ユーザID"
-                className="px-2 py-2 rounded bg-gray-950/80 border border-gray-700 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500/70"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] text-gray-300">
-              アドレス再取得の頻度（分）
-              <input
-                type="number"
-                min={1}
-                value={settings.address_interval_minutes}
-                onChange={e => setSettings(prev => ({ ...prev, address_interval_minutes: Number(e.target.value) || 1 }))}
-                className="px-2 py-2 rounded bg-gray-950/80 border border-gray-700 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500/70"
-              />
-              <span className="text-[10px] text-gray-500">既定値: 43200分（1ヶ月）</span>
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] text-gray-300">
-              キーワードチェックの頻度（分）
-              <input
-                type="number"
-                min={1}
-                value={settings.keyword_interval_minutes}
-                onChange={e => setSettings(prev => ({ ...prev, keyword_interval_minutes: Number(e.target.value) || 1 }))}
-                className="px-2 py-2 rounded bg-gray-950/80 border border-gray-700 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500/70"
-              />
-              <span className="text-[10px] text-gray-500">既定値: 60分（1時間）</span>
-            </label>
-            <div className="flex items-end">
-              <button
-                type="button"
-                onClick={handleSaveSettings}
-                className="w-full px-3 py-2 rounded bg-gray-100 text-gray-950 text-xs font-semibold hover:bg-white"
-              >
-                設定保存
-              </button>
+          <div className="mt-2 flex flex-col gap-3 bg-gray-900/80 border border-gray-700/60 rounded p-3 shadow-inner">
+            {/* 上段：システム設定 */}
+            <div className="grid gap-2 md:grid-cols-[1fr_220px_220px_auto_auto]">
+              <label className="flex flex-col gap-1 text-[11px] text-gray-300">
+                キーワード
+                <input
+                  type="text"
+                  value={keywordText}
+                  onChange={e => setKeywordText(e.target.value)}
+                  placeholder="棚卸,棚おろし,ユーザID"
+                  className="px-2 py-2 rounded bg-gray-950/80 border border-gray-700 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500/70"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] text-gray-300">
+                アドレス再取得の頻度（分）
+                <input
+                  type="number"
+                  min={1}
+                  value={settings.address_interval_minutes}
+                  onChange={e => setSettings(prev => ({ ...prev, address_interval_minutes: Number(e.target.value) || 1 }))}
+                  className="px-2 py-2 rounded bg-gray-950/80 border border-gray-700 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500/70"
+                />
+                <span className="text-[10px] text-gray-500">既定値: 43200分（1ヶ月）</span>
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] text-gray-300">
+                キーワードチェックの頻度（分）
+                <input
+                  type="number"
+                  min={1}
+                  value={settings.keyword_interval_minutes}
+                  onChange={e => setSettings(prev => ({ ...prev, keyword_interval_minutes: Number(e.target.value) || 1 }))}
+                  className="px-2 py-2 rounded bg-gray-950/80 border border-gray-700 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500/70"
+                />
+                <span className="text-[10px] text-gray-500">既定値: 60分（1時間）</span>
+              </label>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={handleSaveSettings}
+                  className="w-full px-3 py-2 rounded bg-gray-100 text-gray-950 text-xs font-semibold hover:bg-white"
+                >
+                  設定保存
+                </button>
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={handleSeedDummyData}
+                  disabled={runningAction !== null}
+                  className="w-full px-3 py-2 rounded bg-amber-400 text-gray-950 text-xs font-semibold hover:bg-amber-300 disabled:bg-gray-600 disabled:text-gray-300 disabled:cursor-wait"
+                >
+                  {runningAction === 'dummy' ? '投入中...' : 'ダミーデータ投入'}
+                </button>
+              </div>
             </div>
-            <div className="flex items-end">
-              <button
-                type="button"
-                onClick={handleSeedDummyData}
-                disabled={runningAction !== null}
-                className="w-full px-3 py-2 rounded bg-amber-400 text-gray-950 text-xs font-semibold hover:bg-amber-300 disabled:bg-gray-600 disabled:text-gray-300 disabled:cursor-wait"
-              >
-                {runningAction === 'dummy' ? '投入中...' : 'ダミーデータ投入'}
-              </button>
+
+            {/* 下段：プロフィール設定 */}
+            <div className="border-t border-gray-800/80 pt-2 grid gap-2 md:grid-cols-4">
+              <label className="flex flex-col gap-1 text-[11px] text-gray-300">
+                メールアドレス
+                <input
+                  type="email"
+                  value={settings.my_email ?? ''}
+                  onChange={e => setSettings(prev => ({ ...prev, my_email: e.target.value }))}
+                  placeholder="your.email@example.com"
+                  className="px-2 py-2 rounded bg-gray-950/80 border border-gray-700 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500/70"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] text-gray-300">
+                電話番号
+                <input
+                  type="text"
+                  value={settings.my_phone ?? ''}
+                  onChange={e => setSettings(prev => ({ ...prev, my_phone: e.target.value }))}
+                  placeholder="090-0000-0000"
+                  className="px-2 py-2 rounded bg-gray-950/80 border border-gray-700 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500/70"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] text-gray-300">
+                住所
+                <input
+                  type="text"
+                  value={settings.my_address ?? ''}
+                  onChange={e => setSettings(prev => ({ ...prev, my_address: e.target.value }))}
+                  placeholder="住所を入力してください"
+                  className="px-2 py-2 rounded bg-gray-950/80 border border-gray-700 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500/70"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] text-gray-300">
+                部署
+                <input
+                  type="text"
+                  value={settings.my_dept ?? ''}
+                  onChange={e => setSettings(prev => ({ ...prev, my_dept: e.target.value }))}
+                  placeholder="部署を入力してください"
+                  className="px-2 py-2 rounded bg-gray-950/80 border border-gray-700 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500/70"
+                />
+              </label>
             </div>
           </div>
         )}

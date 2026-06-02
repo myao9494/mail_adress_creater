@@ -951,7 +951,50 @@ class BackendServerTest(unittest.TestCase):
         self.assertNotIn("win32com.dummy_module", sys.modules)
         self.assertNotIn("win32com.gen_py.dummy_sub", sys.modules)
 
+    def test_profile_settings_initialization_and_save(self) -> None:
+        """初期状態でプロフィール項目が存在すること、および save_settings で保存できることをテストする"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "backend" / "data" / "app.sqlite3"
+
+            with patch.object(server, "DB_PATH", db_path):
+                # データベース初期化
+                server.ensure_db()
+                
+                # 初期値の確認
+                settings = server.get_settings()
+                self.assertIn("my_email", settings)
+                self.assertEqual(settings["my_email"], "")
+                self.assertIn("my_phone", settings)
+                self.assertEqual(settings["my_phone"], "")
+                self.assertIn("my_address", settings)
+                self.assertEqual(settings["my_address"], "")
+                self.assertIn("my_dept", settings)
+                self.assertEqual(settings["my_dept"], "")
+
+                # 設定の保存
+                payload = {
+                    "my_email": " user@example.com ",
+                    "my_phone": " 090-0000-0000 ",
+                    "my_address": " 東京都千代田区 ",
+                    "my_dept": " 開発部 "
+                }
+                updated = server.save_settings(payload)
+                
+                # トリムされた状態で保存されていることを検証
+                self.assertEqual(updated["my_email"], "user@example.com")
+                self.assertEqual(updated["my_phone"], "090-0000-0000")
+                self.assertEqual(updated["my_address"], "東京都千代田区")
+                self.assertEqual(updated["my_dept"], "開発部")
+
+                # 再度取得した値もトリムされた状態であることを検証
+                settings_again = server.get_settings()
+                self.assertEqual(settings_again["my_email"], "user@example.com")
+                self.assertEqual(settings_again["my_phone"], "090-0000-0000")
+                self.assertEqual(settings_again["my_address"], "東京都千代田区")
+                self.assertEqual(settings_again["my_dept"], "開発部")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
