@@ -970,13 +970,16 @@ class BackendServerTest(unittest.TestCase):
                 self.assertEqual(settings["my_address"], "")
                 self.assertIn("my_dept", settings)
                 self.assertEqual(settings["my_dept"], "")
+                self.assertIn("my_home_email", settings)
+                self.assertEqual(settings["my_home_email"], "")
 
                 # 設定の保存
                 payload = {
                     "my_email": " user@example.com ",
                     "my_phone": " 090-0000-0000 ",
                     "my_address": " 東京都千代田区 ",
-                    "my_dept": " 開発部 "
+                    "my_dept": " 開発部 ",
+                    "my_home_email": " home@example.com "
                 }
                 updated = server.save_settings(payload)
                 
@@ -985,6 +988,7 @@ class BackendServerTest(unittest.TestCase):
                 self.assertEqual(updated["my_phone"], "090-0000-0000")
                 self.assertEqual(updated["my_address"], "東京都千代田区")
                 self.assertEqual(updated["my_dept"], "開発部")
+                self.assertEqual(updated["my_home_email"], "home@example.com")
 
                 # 再度取得した値もトリムされた状態であることを検証
                 settings_again = server.get_settings()
@@ -992,6 +996,7 @@ class BackendServerTest(unittest.TestCase):
                 self.assertEqual(settings_again["my_phone"], "090-0000-0000")
                 self.assertEqual(settings_again["my_address"], "東京都千代田区")
                 self.assertEqual(settings_again["my_dept"], "開発部")
+                self.assertEqual(settings_again["my_home_email"], "home@example.com")
 
 
 if __name__ == "__main__":
