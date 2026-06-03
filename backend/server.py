@@ -45,6 +45,7 @@ DEFAULT_SETTINGS = {
     "my_phone": "",
     "my_address": "",
     "my_dept": "",
+    "my_home_email": "",
 }
 
 @dataclass
@@ -247,7 +248,7 @@ def save_settings(payload: dict[str, Any]) -> dict[str, Any]:
             if value < 1:
                 raise ValueError(f"{key} must be greater than 0")
             current[key] = value
-    for key in ("my_email", "my_phone", "my_address", "my_dept"):
+    for key in ("my_email", "my_phone", "my_address", "my_dept", "my_home_email"):
         if key in payload:
             current[key] = str(payload[key]).strip()
 

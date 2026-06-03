@@ -9,6 +9,7 @@ export type BackendSettings = {
   my_phone?: string
   my_address?: string
   my_dept?: string
+  my_home_email?: string
 }
 
 export type KeywordMatch = {
@@ -69,6 +70,7 @@ export const DEFAULT_SETTINGS: BackendSettings = {
   my_phone: '',
   my_address: '',
   my_dept: '',
+  my_home_email: '',
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {

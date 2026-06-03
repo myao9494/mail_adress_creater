@@ -279,6 +279,7 @@ function App() {
       my_phone: settings.my_phone,
       my_address: settings.my_address,
       my_dept: settings.my_dept,
+      my_home_email: settings.my_home_email,
     }
     try {
       const savedSettings = await saveSettings(nextSettings)
@@ -288,7 +289,7 @@ function App() {
     } catch (err) {
       setOperationError(err instanceof Error ? err.message : '設定の保存に失敗しました')
     }
-  }, [keywordText, settings.address_interval_minutes, settings.keyword_interval_minutes, settings.my_email, settings.my_phone, settings.my_address, settings.my_dept, showToast])
+  }, [keywordText, settings.address_interval_minutes, settings.keyword_interval_minutes, settings.my_email, settings.my_phone, settings.my_address, settings.my_dept, settings.my_home_email, showToast])
 
   const handleLoadDatabase = useCallback(async () => {
     setRunningAction('database')
@@ -746,6 +747,13 @@ function App() {
             >
               部署
             </button>
+            <button
+              type="button"
+              onClick={() => handleCopyProfile(settings.my_home_email, '家のメールアドレス')}
+              className="px-2.5 py-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-[10px] text-gray-200 transition-colors font-medium"
+            >
+              家アド
+            </button>
           </div>
         </div>
         {menuOpen && (
@@ -806,7 +814,7 @@ function App() {
             </div>
 
             {/* 下段：プロフィール設定 */}
-            <div className="border-t border-gray-800/80 pt-2 grid gap-2 md:grid-cols-4">
+            <div className="border-t border-gray-800/80 pt-2 grid gap-2 md:grid-cols-5">
               <label className="flex flex-col gap-1 text-[11px] text-gray-300">
                 メールアドレス
                 <input
@@ -844,6 +852,16 @@ function App() {
                   value={settings.my_dept ?? ''}
                   onChange={e => setSettings(prev => ({ ...prev, my_dept: e.target.value }))}
                   placeholder="部署を入力してください"
+                  className="px-2 py-2 rounded bg-gray-950/80 border border-gray-700 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500/70"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] text-gray-300">
+                家アド
+                <input
+                  type="email"
+                  value={settings.my_home_email ?? ''}
+                  onChange={e => setSettings(prev => ({ ...prev, my_home_email: e.target.value }))}
+                  placeholder="home.email@example.com"
                   className="px-2 py-2 rounded bg-gray-950/80 border border-gray-700 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500/70"
                 />
               </label>
