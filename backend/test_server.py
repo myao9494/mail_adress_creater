@@ -16,6 +16,18 @@ from backend import server
 
 
 class BackendServerTest(unittest.TestCase):
+    def test_parse_event_text_prefers_explicit_date_over_subject_keywords(self) -> None:
+        base = datetime(2026, 7, 14, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+
+        event = parse_event_text(
+            "2026年7月14日 15:00〜17:00 今日から始めるxxx( 7/17)", base
+        )
+
+        self.assertEqual(event.start.isoformat(timespec="minutes"), "2026-07-14T15:00+09:00")
+        self.assertEqual(event.end.isoformat(timespec="minutes"), "2026-07-14T17:00+09:00")
+        self.assertEqual(event.subject, "今日から始めるxxx( 7/17)")
+        self.assertFalse(event.all_day)
+
     def test_parse_event_text_extracts_weekday_time_range(self) -> None:
         base = datetime(2026, 5, 18, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
 
@@ -1001,5 +1013,4 @@ class BackendServerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
 

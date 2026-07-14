@@ -84,6 +84,18 @@ def parse_event_text(text: str, base_time: datetime | None = None) -> ParsedEven
 
 
 def extract_date(text: str, base: datetime) -> tuple[datetime.date, str]:
+    # 件名に含まれる「今日」や補足用の日付より、先頭の明示的な日付を優先する。
+    # 例: "2026年7月14日 15:00 今日から始めるxxx(7/17)"。
+    match = re.search(r"(?:(20\d{2})\s*[年/\-.])?\s*(1[0-2]|0?[1-9])\s*[月/\-.]\s*(3[01]|[12]\d|0?[1-9])\s*日?\s*(?:[(（]?[月火水木金土日]曜?(?:日)?[)）]?)?", text)
+    if match:
+        year = int(match.group(1) or base.year)
+        month = int(match.group(2))
+        day = int(match.group(3))
+        value = datetime(year, month, day, tzinfo=base.tzinfo).date()
+        if match.group(1) is None and value < base.date():
+            value = datetime(year + 1, month, day, tzinfo=base.tzinfo).date()
+        return value, remove_span(text, match.span())
+
     patterns = [
         (r"明後日|あさって", lambda: base.date() + timedelta(days=2)),
         (r"明日|あした", lambda: base.date() + timedelta(days=1)),
@@ -101,16 +113,6 @@ def extract_date(text: str, base: datetime) -> tuple[datetime.date, str]:
     if match:
         value = resolve_weekday(base, match.group(2), match.group(1) or "")
         return value.date(), remove_span(text, match.span())
-
-    match = re.search(r"(?:(20\d{2})\s*[年/\-.])?\s*(1[0-2]|0?[1-9])\s*[月/\-.]\s*(3[01]|[12]\d|0?[1-9])\s*日?\s*(?:[(（]?[月火水木金土日]曜?(?:日)?[)）]?)?", text)
-    if match:
-        year = int(match.group(1) or base.year)
-        month = int(match.group(2))
-        day = int(match.group(3))
-        value = datetime(year, month, day, tzinfo=base.tzinfo).date()
-        if match.group(1) is None and value < base.date():
-            value = datetime(year + 1, month, day, tzinfo=base.tzinfo).date()
-        return value, remove_span(text, match.span())
 
     match = re.search(r"月末", text)
     if match:
