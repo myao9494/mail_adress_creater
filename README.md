@@ -75,6 +75,7 @@ outlook-address-maker/
 - Mac: `start_mac.command`
 
 起動用ファイルは`dist/index.html`がない場合に`npm ci`と`npm run build`を実行し、その後バックエンドを起動します。
+Windows用の`start_windows.bat`は、起動前に指定ポート（既定: 8765）を使用中の既存プロセス停止を試みます。その後、バックエンドを別プロセスで起動し、ヘルスチェック成功後にブラウザを開きます。
 Mac用の`start_mac.command`は、ポート8765が使用中の場合に既存プロセスの停止を試み、8765番以降の空きポートで起動します。
 
 手動で起動する場合:
@@ -206,7 +207,9 @@ MacではOutlook COM連携が使えないため、「アドレス再取得」と
 
 ### ポート8765が使用中の場合
 
-別のポート番号を指定してください：
+`start_windows.bat`を使う場合は、起動前に8765番ポートを使用中の既存プロセス停止を試みます。そのため、前回のバックエンドが残っている場合も再起動できます。
+
+手動起動で別のポート番号を指定する場合:
 
 ```cmd
 set OUTLOOK_ADDRESS_PORT=3000
@@ -214,6 +217,15 @@ python backend\server.py
 ```
 
 この場合、`http://localhost:3000` でアクセスします。
+
+`start_windows.bat`で別ポートを使う場合:
+
+```cmd
+set OUTLOOK_ADDRESS_PORT=3000
+start_windows.bat
+```
+
+ブラウザの自動起動を抑止する場合は、`OUTLOOK_ADDRESS_OPEN_BROWSER=0`を指定できます。
 
 ### Pythonが見つからない場合
 

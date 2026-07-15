@@ -56,6 +56,8 @@ npm run backend
 - Mac: `start_mac.command`
 
 `dist/index.html`が存在しない場合は、起動時に`npm ci`と`npm run build`を実行します。
+Windows用の`start_windows.bat`は、起動前に指定ポート（既定: 8765）を使用中の既存プロセス停止を試みます。その後、バックエンドを別プロセスで起動し、ヘルスチェック成功後にブラウザを開きます。
+ブラウザの自動起動を抑止する場合は、`OUTLOOK_ADDRESS_OPEN_BROWSER=0`を指定できます。
 
 ### 開発サーバー
 
